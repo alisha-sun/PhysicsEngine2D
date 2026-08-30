@@ -595,7 +595,7 @@ MonoBehaviour:
   terminalVelocity: Infinity
   freezeX: 0
   freezeY: 0
-  freezeRotation: 1
+  freezeRotation: 0
   anchor: {x: NaN, y: NaN}
 --- !u!60 &112264130
 PolygonCollider2D:

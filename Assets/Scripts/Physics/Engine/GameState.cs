@@ -8,14 +8,14 @@ public class GameState
     public RegionManager regions { get; private set; } = new RegionManager();
     private List<DynamicObject> objects = new List<DynamicObject>();
 
-    public void Step() {
-        Step(Time.fixedDeltaTime);
-    }
     public void Step(int ticks)
     {
         for (int t = 0; t < ticks; t++) Step();
     }
-
+    public void Step() {
+        Step(Time.fixedDeltaTime);
+        tick++;
+    }
     private void Step(float time)
     {
         foreach (DynamicObject obj in objects)
@@ -30,10 +30,9 @@ public class GameState
         }
         foreach (DynamicObject obj in objects)
         {
-            List<PhysicsObject> candidates = regions.GetPotentialCollisions(obj);
-            List<Collision> collisions = Collision.GetCollisions(obj,candidates);
+            List<Collision> collisions = Collision.GetCollisions(obj, this);
 
-            SpriteRenderer rend = obj.Instance.GetComponent<SpriteRenderer>();
+            SpriteRenderer rend = obj.Instance.GetComponent<SpriteRenderer>(); // <-- debug
             if (rend != null) {
                 if (collisions.Count > 0) rend.color = Color.yellow;
                 else rend.color = Color.white;
@@ -46,7 +45,6 @@ public class GameState
 
             regions.UpdateRegions(obj);
         }
-        tick++;
     }
 
     public void Apply()
