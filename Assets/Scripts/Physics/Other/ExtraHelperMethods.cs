@@ -1,0 +1,103 @@
+﻿using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class Debug2
+{
+    private const float RATIO = .2f;
+    public static void DrawArrow(Vector2 start, Vector2 direction, Color color, float duration = 0f)
+    {
+        Vector2 end = start + direction;
+        Debug.DrawLine(start, end, color, duration);
+
+        Debug.DrawLine(end, end - direction*RATIO + new Vector2(direction.y,-direction.x)*RATIO, color, duration);
+        Debug.DrawLine(end, end - direction*RATIO + new Vector2(-direction.y, direction.x)*RATIO, color, duration);
+    }
+
+    public static void DrawX(Vector2 pos, Color color, float duration, float size = 1f) {
+        Vector2 v = new Vector2(1, 1).normalized*size/2;
+        Debug.DrawLine(pos - v, pos + v, color, duration);
+        v = new Vector2(-v.y, v.x);
+        Debug.DrawLine(pos - v, pos + v, color, duration);
+    }
+
+    public static void Draw(Edge edge, Color color, float duration) {
+        Debug.DrawLine(edge.start,edge.end, color, duration);
+    }
+}
+
+public class Vectors2D {
+    public static Vector2 SolveSystem(Vector2 point1, Vector2 dir1, Vector2 point2, Vector2 dir2)
+    {
+        if (dir1.normalized == dir2.normalized) return new Vector2(float.NaN, float.NaN);
+        float t = Cross(point2 - point1, dir2) / Cross(dir1,dir2);
+        return point1 + t * dir1;
+    }
+
+    private static float Cross(Vector2 a, Vector2 b)
+    {
+        return a.x * b.y - a.y * b.x;
+    }
+
+    public static Vector2 MinByDot(Vector2 dir, params Vector2[] vectors)
+    {
+        if (vectors.Length == 0) return new Vector2(float.NaN, float.NaN);
+
+        Vector2 minVector = vectors[0];
+        float minDot = Vector2.Dot(vectors[0], dir);
+        for (int i = 1; i < vectors.Length; i++)
+        {
+            float dot = Vector2.Dot(vectors[i], dir);
+            if (dot < minDot)
+            {
+                minDot = dot;
+                minVector = vectors[i];
+            }
+        }
+        return minVector;
+    }
+    public static Vector2 MaxByDot(Vector2 dir, params Vector2[] vectors)
+    {
+        if (vectors.Length == 0) return new Vector2(float.NaN, float.NaN);
+
+        Vector2 maxVector = vectors[0];
+        float maxDot = Vector2.Dot(vectors[0], dir);
+        for (int i = 1; i < vectors.Length; i++)
+        {
+            float dot = Vector2.Dot(vectors[i], dir);
+            if (dot > maxDot)
+            {
+                maxDot = dot;
+                maxVector = vectors[i];
+            }
+        }
+        return maxVector;
+    }
+}
+
+public struct Edge
+{
+    public Vector2 start { get; }
+    public Vector2 end { get; }
+    public Vector2 tangent { get; }
+    public Vector2 normal { get; private set; }
+
+    public Edge(Vector2 start, Vector2 end) {
+        this.start = start;
+        this.end = end;
+
+        this.tangent = end - start;
+        this.normal = new Vector2(-tangent.y, tangent.x).normalized;
+    }
+
+    public Edge(float f) {
+        this.start = new Vector2(f,f);
+        this.end = new Vector2(f, f);
+        this.tangent = new Vector2(f, f);
+        this.normal = new Vector2(f, f);
+    }
+
+    public void FlipNormal() {
+        normal = -normal;
+    }
+}

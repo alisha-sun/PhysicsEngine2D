@@ -2,7 +2,7 @@
 
 A 2D platformer prototype built in Unity exploring a cooperative mechanic where two players control different aspects of the same character.
 
-**Current status:** Multiplayer currently works over LAN.
+**Current status:** Multiplayer currently works over LAN. I am currently in the process of implementing a custom deterministic 2D physics engine.
 
 ## Controls (currently implemented)
 #### Player 1:

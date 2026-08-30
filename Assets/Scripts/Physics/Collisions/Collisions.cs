@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.UIElements;
 public interface IPhysicsCollider
@@ -17,7 +20,8 @@ public struct Collision
     public Vector2[] contactPoints;
     public Vector2 normal;
 
-    public static List<Collision> GetCollisions(DynamicObject obj, List<PhysicsObject> candidates) {
+    public static List<Collision> GetCollisions(DynamicObject obj, GameState gameState) {
+        List<PhysicsObject> candidates = gameState.regions.GetPotentialCollisions(obj);
         List<Collision> collisions = new List<Collision>();
         foreach (IPhysicsCollider collider in obj.Colliders)
         {
@@ -26,11 +30,7 @@ public struct Collision
                 foreach (IPhysicsCollider other_collider in other_obj.Colliders)
                 {
                     Collision collision = Collision.Check(collider, other_collider);
-                    if (collision.contactPoints != null)
-                    {
-                        collisions.Add(collision);
-                        Debug.Log("Collision between " + obj.Instance + " and " + other_obj.Instance);
-                    }
+                    if (collision.contactPoints != null) collisions.Add(collision);
                 }
             }
         }
@@ -56,63 +56,120 @@ public struct Collision
     {
         reference = polyA;
         incident = polyB;
-        penetration = float.PositiveInfinity;
+        penetration = float.PositiveInfinity; //minimize this
         normal = new Vector2(float.NaN, float.NaN);
         contactPoints = null;
 
         Vector2[] pathA = polyA.GetPath();
         Vector2[] pathB = polyB.GetPath();
-        DoEdgeNormalProjections(polyA, pathA, polyB, pathB);
-        if (!float.IsNaN(penetration)) //have not found a sepataing axis
-            DoEdgeNormalProjections(polyB, pathB, polyA, pathA); 
-    }
-    private void DoEdgeNormalProjections(PolygonCollider poly, IReadOnlyList<Vector2> path, PolygonCollider other_poly, IReadOnlyList<Vector2> other_path) {
-        Vector2 prevEdge = path[0] - path[path.Count - 1];
-        for (int i = 0; i < path.Count; i++) //for each vertex in the polygon
+
+        Edge referenceEdge = FindMinimumOverlapEdge(polyA, pathA, polyB, pathB);
+
+        if (!float.IsNaN(penetration)) //no separating axis found from polyA's edge normals
         {
-            Vector2 edgeTangent = path[(i + 1) % path.Count] - path[i % path.Count];
-            Vector2 edgeNormal = new Vector2(-edgeTangent.y, edgeTangent.x).normalized;
-            if (Vector2.Dot(edgeNormal, prevEdge) < 0) edgeNormal = -edgeNormal; //force the normal vector to face outward. This doesn't matter for collision detection but does for resolution
+            Edge e = FindMinimumOverlapEdge(polyB, pathB, polyA, pathA);
+            if (!float.IsNaN(e.start.x)) referenceEdge = e;
+        }
+        else return;
 
-                Debug.DrawLine(path[i], path[i] + edgeTangent, Color.red, Time.fixedDeltaTime);
-                Debug2.DrawArrow(path[i] + edgeTangent*.5f, edgeNormal, Color.magenta, Time.fixedDeltaTime);
+        if (!float.IsNaN(penetration)) //there is no separating axis
+        {
+            if (incident == polyA) contactPoints = GetContactPoints(referenceEdge, FindIncidentEdge(pathA));
+            else contactPoints = GetContactPoints(referenceEdge, FindIncidentEdge(pathB));
 
-            float p = FindProjectionOverlap(path, other_path, edgeNormal);
+            foreach (Vector2 point in contactPoints) {
+                Debug2.DrawX(point, Color.red, Time.fixedDeltaTime, .1f);
+            }
+        }
+    }
+    private Edge FindMinimumOverlapEdge(PolygonCollider poly, IReadOnlyList<Vector2> path, PolygonCollider other_poly, IReadOnlyList<Vector2> other_path) {
+        Edge referenceEdge = new Edge(float.NaN);
 
-            if (float.IsNaN(p)) {
-                contactPoints = null;
-                penetration = float.NaN; // <-
-                return;
+        Vector2 prevEdgeTangent = path[0] - path[path.Count - 1];
+        for (int i = 0; i < path.Count; i++) 
+        {
+            Edge edge = new Edge(path[i], path[(i + 1) % path.Count]); //looping through all the edges. May be clockwise or counterclockwise
+
+            if (Vector2.Dot(edge.normal, prevEdgeTangent) < 0) edge.FlipNormal(); //force the normal vector to face outward, because this is required for finding the incident edge later
+
+               Debug2.DrawArrow(edge.start + edge.tangent*.5f, edge.normal, Color.magenta, Time.fixedDeltaTime);
+
+            float p = FindProjectionOverlap(path, other_path, edge);
+
+            if (float.IsNaN(p)) { //found separating axis
+                normal = new Vector2(float.NaN, float.NaN);
+                penetration = float.NaN; // <---
+                return new Edge(float.NaN);
             }
             else if (p < penetration)
             {
                 reference = poly;
                 incident = other_poly;
                 
-                normal = edgeNormal;
+                normal = edge.normal;
                 penetration = p;
-                contactPoints = new Vector2[0];
+
+                referenceEdge = edge;
+                Debug2.Draw(edge,Color.gray,Time.fixedDeltaTime);
             }
 
-                prevEdge = edgeTangent;
+            prevEdgeTangent = edge.tangent;
         }
+        return referenceEdge;
     }
-    private static float FindProjectionOverlap(IReadOnlyList<Vector2> pathA, IReadOnlyList<Vector2> pathB, Vector2 dir) {
-        (float min, float max) projA = ProjectPolygon(pathA, dir);
-        (float min, float max) projB = ProjectPolygon(pathB, dir);
+    private Edge FindIncidentEdge(IReadOnlyList<Vector2> path) {
+        Edge incidentEdge = new Edge(new Vector2(float.NaN, float.NaN), new Vector2(float.NaN, float.NaN));
+        float minDot = float.PositiveInfinity;
+        Vector2 prevEdgeTangent = path[0] - path[path.Count - 1];
+        for (int i = 0; i < path.Count; i++)
+        {
+            Edge edge = new Edge(path[i], path[(i + 1)%path.Count]); //looping through all the edges. May be clockwise or counterclockwise
 
-        float overlap = Mathf.Min(projA.max, projB.max) - Mathf.Max(projA.min, projB.min);
+            if (Vector2.Dot(edge.normal, prevEdgeTangent) < 0) edge.FlipNormal(); //force the normal vector to face outward, because this wont work reliably otherwise
 
-        if (overlap < 0) return float.NaN;
-        else return overlap;
-    }
-    private static (float max, float min) ProjectPolygon(IReadOnlyList<Vector2> path, Vector2 dir) {
-        (float min, float max) interval = (float.PositiveInfinity, float.NegativeInfinity);
-        foreach (Vector2 vertex in path) {
-            interval.min = Mathf.Min(interval.min, Vector2.Dot(dir, vertex));
-            interval.max = Mathf.Max(interval.max, Vector2.Dot(dir, vertex));
+            float dot = Vector2.Dot(edge.normal, normal);
+            if (dot < minDot)
+            {
+                minDot = dot;
+                incidentEdge = new Edge(path[i], path[(i + 1) % path.Count]);
+            }
+
+            prevEdgeTangent = edge.tangent;
         }
-        return interval;
+        return incidentEdge;
+    }
+    private static Vector2[] GetContactPoints(Edge referenceEdge, Edge incidentEdge) {
+        Debug2.Draw(referenceEdge, Color.cyan, Time.fixedDeltaTime);
+        Debug2.Draw(incidentEdge, Color.blue, Time.fixedDeltaTime);
+
+        incidentEdge = ClipIncidentEdge(incidentEdge, referenceEdge);
+
+        Debug2.Draw(incidentEdge, Color.red, Time.fixedDeltaTime);
+
+        List<Vector2> l = new List<Vector2>();
+        if (Vector2.Dot(incidentEdge.start - referenceEdge.start, referenceEdge.normal) < 0) l.Add(incidentEdge.start);
+        if (Vector2.Dot(incidentEdge.end - referenceEdge.start, referenceEdge.normal) < 0) l.Add(incidentEdge.end);
+
+        return l.ToArray();
+    }
+    private static Edge ClipIncidentEdge(Edge incidentEdge, Edge referenceEdge) {
+        (Vector2 start, Vector2 end) range;
+        range.start = Vectors2D.SolveSystem(referenceEdge.start, referenceEdge.normal, incidentEdge.start, incidentEdge.tangent);
+        range.end = Vectors2D.SolveSystem(referenceEdge.end, referenceEdge.normal, incidentEdge.start, incidentEdge.tangent);
+
+        if (Vector2.Dot(range.end - range.start, incidentEdge.tangent) < 0)
+        {
+            Vector2 temp = range.start; 
+            range.start = range.end;
+            range.end = temp;
+        }
+
+        Vector2 start = Vectors2D.MaxByDot(incidentEdge.tangent, range.start, incidentEdge.start);
+        Vector2 end = Vectors2D.MinByDot(incidentEdge.tangent, range.end, incidentEdge.end);
+
+        Edge clipped = new Edge(start,end);
+        if (Vector2.Dot(clipped.tangent, incidentEdge.tangent) > 0) return clipped;
+        else return new Edge(float.NaN); //shouldnt happen
     }
 
     private Collision(PolygonCollider polyA, CircleCollider circleB)
@@ -140,5 +197,34 @@ public struct Collision
         normal = new Vector2(f, f);
         penetration = f;
         contactPoints = null;
+    }
+
+
+    /* MATH-Y HELPER FUNCTIONS */
+
+    private static float FindProjectionOverlap(IReadOnlyList<Vector2> path, IReadOnlyList<Vector2> other_path, Edge edge)
+    {
+        (float min, float max) proj = ProjectPolygon(path, edge.normal);
+        (float min, float max) other_proj = ProjectPolygon(other_path, edge.normal);
+
+        float overlap = float.NaN;
+        float extreme = Vector2.Dot(edge.normal, edge.start);
+        const float EPSILON = 1e-5f;
+        if (Mathf.Abs(extreme - proj.min) < EPSILON) overlap = other_proj.max - proj.min; //if the reference edge is the reference polygon's min, move the incident polygon's max to the reference polygon's min
+        else if (Mathf.Abs(extreme - proj.min) > EPSILON) overlap = proj.max - other_proj.min; //otherwise the reference edge is the reference polygon's max, so we must move the other polygon's min to the reference polygon's max
+        else Debug.LogError("Not a convex polygon.");
+
+        if (overlap < 0) return float.NaN;
+        else return overlap;
+    }
+    private static (float min, float max) ProjectPolygon(IReadOnlyList<Vector2> path, Vector2 dir)
+    {
+        (float min, float max) interval = (float.PositiveInfinity, float.NegativeInfinity);
+        foreach (Vector2 vertex in path)
+        {
+            interval.min = Mathf.Min(interval.min, Vector2.Dot(dir, vertex));
+            interval.max = Mathf.Max(interval.max, Vector2.Dot(dir, vertex));
+        }
+        return interval;
     }
 }

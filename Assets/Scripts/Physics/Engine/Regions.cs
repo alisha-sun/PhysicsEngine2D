@@ -38,7 +38,6 @@ public class RegionManager
                     {
                         if (other_obj != obj && !candidates.Contains(other_obj)) {
                             candidates.Add(other_obj);
-                            Debug.Log(other_obj.Instance);
                         };
                     }
                 }

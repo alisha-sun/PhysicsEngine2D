@@ -10,7 +10,7 @@ public class DynamicObject : PhysicsObject
     public int NetworkId { get; }
     private GameObject _instance;                               public override GameObject Instance => _instance;
     private List<IPhysicsCollider> _colliders;                  public override IReadOnlyList<IPhysicsCollider> Colliders => _colliders;
-    private Renderer[] _renderers;
+    private Renderer[] _renderers; //only used to calculate bounds
 
     private Vector2 _position;                                  public override Vector2 Position => _position;              // (m,m)
     private float _rotation;                                    public override float Rotation => _rotation;                // radians
