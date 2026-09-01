@@ -10,6 +10,8 @@ public class PhysicsEngine : MonoBehaviour
     public float regionSize = 4f;
 
     public float gravity = -9.8f; // m/s^2
+
+    public bool paused = false;
     
     public static PhysicsEngine instance { get; private set; }
     public GameState gameState { get; private set; } = new GameState();
@@ -20,9 +22,22 @@ public class PhysicsEngine : MonoBehaviour
         RegionManager.SIZE = regionSize;
     }
 
+    private void Start()
+    {
+        PhysicsObjectComponent[] objects = FindObjectsByType<PhysicsObjectComponent>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        foreach (PhysicsObjectComponent obj in objects) {
+            obj.Initialize();
+            PhysicsEngine.instance.gameState.Register(obj.self);
+        }
+        Debug.Log("FINISHED INITIALIZATION");
+    }
+
     void FixedUpdate()
     {
-        gameState.Step();
-        gameState.Apply();
+        if (!paused)
+        {
+            gameState.Step();
+            gameState.Apply();
+        }
     }
 }

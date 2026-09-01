@@ -1,7 +1,10 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.UIElements;
 public interface IPhysicsCollider
 {
     PhysicsObject Owner { get; }
@@ -103,9 +106,17 @@ public struct Collision
                                                           new Vector2(-(1 + e) * rv_n0, -(1 + e) * rv_n1)                                    );
             }
 
+            if (impulseMagnitudes.x == float.NaN)
+            {
+                Debug.LogError("Unable to solve for impulse in collision between " + reference.Owner.Instance.name + " and " + incident.Owner.Instance.name);
+                return;
+            }
+
             if (rv_n0 < 0) impulse0 = impulseMagnitudes.x;
             if (rv_n1 < 0) impulse1 = impulseMagnitudes.y;
         }
+
+        //Debug.Log(reference.Owner.Instance.name + " + " + incident.Owner.Instance.name);
 
         float ratio = PercentMass_Reference();
         if (reference.Owner is DynamicObject d1)
@@ -136,7 +147,7 @@ public struct Collision
 
     private float Restitution()
     {
-        return 1; //consider physics materials later
+        return 0; //consider physics materials later
     }
 
     private float CalculateContactVelocityCoefficient(int v_index, int j_index) { //i worked through the algebra myself :/
@@ -177,7 +188,7 @@ public struct Collision
             else contactPoints = GetContactPoints(referenceEdge, FindIncidentEdge(pathB));
 
             foreach (Vector2 point in contactPoints) {
-                Debug2.DrawX(point, Color.red, Time.fixedDeltaTime, .1f);
+                //Debug2.DrawX(point, Color.red, Time.fixedDeltaTime, .1f);
             }
         }
     }
@@ -191,7 +202,7 @@ public struct Collision
 
             if (Vector2.Dot(edge.normal, prevEdgeTangent) < 0) edge.FlipNormal(); //force the normal vector to face outward, because this is required for finding the incident edge later
 
-               Debug2.DrawArrow(edge.start + edge.tangent*.5f, edge.normal, Color.magenta, Time.fixedDeltaTime);
+               //Debug2.DrawArrow(edge.start + edge.tangent*.5f, edge.normal, Color.magenta, Time.fixedDeltaTime);
 
             float p = FindProjectionOverlap(path, other_path, edge);
 
@@ -200,8 +211,7 @@ public struct Collision
                 penetration = float.NaN; // <---
                 return new Edge(float.NaN);
             }
-            else if (p < penetration)
-            {
+            else if (p < penetration) {
                 reference = poly;
                 incident = other_poly;
                 
@@ -209,7 +219,7 @@ public struct Collision
                 penetration = p;
 
                 referenceEdge = edge;
-                Debug2.Draw(edge,Color.gray,Time.fixedDeltaTime);
+                //Debug2.Draw(edge,Color.gray,Time.fixedDeltaTime);
             }
 
             prevEdgeTangent = edge.tangent;
@@ -238,12 +248,12 @@ public struct Collision
         return incidentEdge;
     }
     private static Vector2[] GetContactPoints(Edge referenceEdge, Edge incidentEdge) {
-        Debug2.Draw(referenceEdge, Color.cyan, Time.fixedDeltaTime);
-        Debug2.Draw(incidentEdge, Color.blue, Time.fixedDeltaTime);
+        //Debug2.Draw(referenceEdge, Color.cyan, Time.fixedDeltaTime);
+        //Debug2.Draw(incidentEdge, Color.blue, Time.fixedDeltaTime);
 
         incidentEdge = ClipIncidentEdge(incidentEdge, referenceEdge);
 
-        Debug2.Draw(incidentEdge, Color.red, Time.fixedDeltaTime);
+        //Debug2.Draw(incidentEdge, Color.red, Time.fixedDeltaTime);
 
         List<Vector2> l = new List<Vector2>();
         if (Vector2.Dot(incidentEdge.start - referenceEdge.start, referenceEdge.normal) < 0) l.Add(incidentEdge.start);
@@ -273,20 +283,103 @@ public struct Collision
 
     private Collision(PolygonCollider polyA, CircleCollider circleB)
     {
-        reference = null;
-        incident = null;
+        reference = polyA;
+        incident = circleB;
+        penetration = float.PositiveInfinity; //minimize this
         normal = new Vector2(float.NaN, float.NaN);
-        penetration = float.NaN;
         contactPoints = null;
+
+        IReadOnlyList<Vector2> path = polyA.GetPath();
+
+        Edge referenceEdge = FindMinimumOverlapEdge(path, circleB.Center, circleB.Radius);
+        if (float.IsNaN(penetration)) return; //found separating axis
+
+        Vector2 p = CheckClosestVertex(path, polyA, circleB);
+        if (float.IsNaN(penetration)) return; //found separating axis
+
+        if (reference == circleB) contactPoints = new Vector2[] { p };
+        else contactPoints = new Vector2[] { circleB.Center - circleB.Radius*normal };
+        //Debug2.DrawX(contactPoints[0], Color.cyan, Time.fixedDeltaTime, .3f);
+    }
+    private Edge FindMinimumOverlapEdge(IReadOnlyList<Vector2> path, Vector2 center, float radius)
+    {
+        Edge referenceEdge = new Edge(float.NaN);
+
+        Vector2 prevEdgeTangent = path[0] - path[path.Count - 1];
+        for (int i = 0; i < path.Count; i++)
+        {
+            Edge edge = new Edge(path[i], path[(i + 1) % path.Count]); //looping through all the edges. May be clockwise or counterclockwise
+
+            if (Vector2.Dot(edge.normal, prevEdgeTangent) < 0) edge.FlipNormal(); //force the normal vector to face outward, because this is required for finding the incident edge later
+
+            //Debug2.DrawArrow(edge.start + edge.tangent * .5f, edge.normal, Color.magenta, Time.fixedDeltaTime);
+
+            float p = FindProjectionOverlap(path, center, radius, edge);
+
+            if (float.IsNaN(p)) { //found separating axis
+                normal = new Vector2(float.NaN, float.NaN);
+                penetration = float.NaN; // <---
+                return new Edge(float.NaN);
+            }
+            else if (p < penetration) {
+                normal = edge.normal;
+                penetration = p;
+
+                referenceEdge = edge;
+                //Debug2.Draw(edge, Color.gray, Time.fixedDeltaTime);
+            }
+
+            prevEdgeTangent = edge.tangent;
+        }
+        return referenceEdge;
+    }
+    private Vector2 CheckClosestVertex(IReadOnlyList<Vector2> path, PolygonCollider polyA, CircleCollider circleB)
+    {
+        Vector2 closest = FindClosestVertex(path, circleB.Center, circleB.Radius);
+        Edge centerToClosest = new Edge(circleB.Center, closest);
+        float p = -Vector2.Dot(closest - (circleB.Center + centerToClosest.tangent.normalized * circleB.Radius), // vector from circle edge to closest vertex
+                               centerToClosest.tangent.normalized);                                              // direction from center to closest vertex
+
+        //Debug.DrawLine(closest, closest - centerToClosest.tangent.normalized * p, Color.green, Time.fixedDeltaTime);
+
+        if (p < 0) //vertex is not touching the circle
+        {
+            if (IsGapBetweenProjections(path, circleB.Center, circleB.Radius, centerToClosest.tangent.normalized)) { // centerToClosest.tangent is orthogonal to the "edge" of the circle
+                normal = new Vector2(float.NaN, float.NaN);
+                penetration = float.NaN; //found seperating axis
+            }
+            return new Vector2(float.NaN, float.NaN);
+        }
+        else if (p < penetration) //vertex is touching the circle and the penetration is less than previously
+        {
+            reference = circleB;
+            incident = polyA;
+            penetration = p;
+            normal = centerToClosest.tangent.normalized;
+            return closest;
+        }
+        else return new Vector2(float.NaN, float.NaN); //do nothing otherwise
     }
 
     private Collision(CircleCollider circleA, CircleCollider circleB)
     {
-        reference = null;
-        incident = null;
-        normal = new Vector2(float.NaN, float.NaN);
-        penetration = float.NaN;
-        contactPoints = null;
+        reference = circleA;
+        incident = circleB;
+        normal = (circleB.Center - circleA.Center);
+        penetration = -normal.magnitude + circleA.Radius + circleB.Radius;
+
+        if (penetration < 0) { 
+            normal = new Vector2(float.NaN,float.NaN); 
+            penetration = float.NaN;
+            contactPoints = null;
+            return; 
+        }
+        normal = normal.normalized;
+        contactPoints = new Vector2[] { (circleA.Center + normal*circleA.Radius + circleB.Center - normal * circleB.Radius)/2 };
+
+        //Debug2.DrawArrow(circleA.Center, normal, Color.magenta, Time.fixedDeltaTime);
+        //Debug.DrawLine(contactPoints[0], contactPoints[0] - normal*penetration, Color.yellow, Time.fixedDeltaTime);
+        //Debug2.DrawX(contactPoints[0], Color.blue, Time.fixedDeltaTime, .2f);
     }
 
 
@@ -306,24 +399,66 @@ public struct Collision
         (float min, float max) proj = ProjectPolygon(path, edge.normal);
         (float min, float max) other_proj = ProjectPolygon(other_path, edge.normal);
 
-        float overlap = float.NaN;
-        float extreme = Vector2.Dot(edge.normal, edge.start);
-        const float EPSILON = 1e-5f;
-        if (Mathf.Abs(extreme - proj.min) < EPSILON) overlap = other_proj.max - proj.min; //if the reference edge is the reference polygon's min, move the incident polygon's max to the reference polygon's min
-        else if (Mathf.Abs(extreme - proj.min) > EPSILON) overlap = proj.max - other_proj.min; //otherwise the reference edge is the reference polygon's max, so we must move the other polygon's min to the reference polygon's max
-        else Debug.LogError("Not a convex polygon.");
-
-        if (overlap < 0) return float.NaN;
-        else return overlap;
+        return FindOverlap(proj, other_proj, edge);
     }
+    private static float FindProjectionOverlap(IReadOnlyList<Vector2> path, Vector2 center, float radius, Edge edge)
+    {
+        (float min, float max) proj = ProjectPolygon(path, edge.normal);
+        (float min, float max) other_proj = ProjectCircle(center, radius, edge.normal);
+
+        return FindOverlap(proj, other_proj, edge);
+    }
+    private static bool IsGapBetweenProjections(IReadOnlyList<Vector2> path, Vector2 center, float radius, Vector2 normal) {
+        (float min, float max) proj = ProjectPolygon(path, normal);
+        (float min, float max) other_proj = ProjectCircle(center, radius, normal);
+
+        return Mathf.Max(proj.min, other_proj.min) - Mathf.Min(proj.max, other_proj.max) > 0;
+    }
+
     private static (float min, float max) ProjectPolygon(IReadOnlyList<Vector2> path, Vector2 dir)
     {
         (float min, float max) interval = (float.PositiveInfinity, float.NegativeInfinity);
         foreach (Vector2 vertex in path)
         {
-            interval.min = Mathf.Min(interval.min, Vector2.Dot(dir, vertex));
-            interval.max = Mathf.Max(interval.max, Vector2.Dot(dir, vertex));
+            interval.min = Mathf.Min(interval.min, Vector2.Dot(vertex, dir));
+            interval.max = Mathf.Max(interval.max, Vector2.Dot(vertex, dir));
         }
         return interval;
+    }
+    private static (float min, float max) ProjectCircle(Vector2 center, float radius, Vector2 dir) {
+        float c = Vector2.Dot(center, dir);
+        return (c - radius, c + radius);
+    }
+
+    private static float FindOverlap((float min, float max) proj, (float min, float max) other_proj, Edge edge) { //the projections are supposed to be along edge.normal; proj is a polygon and edge belongs to proj; other_proj may be a circle or a polygon
+        float overlap = float.NaN;
+        float extreme = Vector2.Dot(edge.normal, edge.start);
+        const float EPSILON = 1e-5f;
+        if (Mathf.Abs(extreme - proj.min) < EPSILON) overlap = other_proj.max - proj.min; //if the reference edge is the reference polygon's min, move the other shape's max to the reference polygon's min
+        else if (Mathf.Abs(extreme - proj.min) > EPSILON) overlap = proj.max - other_proj.min; //otherwise the reference edge is the reference polygon's max, so we must move the other shape's min to the reference polygon's max
+        else {
+            Debug.LogError("Not a convex polygon.");
+            return overlap;
+        }
+
+        if (overlap < 0) return float.NaN;
+        else return overlap;
+    }
+
+    private Vector2 FindClosestVertex(IReadOnlyList<Vector2> path, Vector2 center, float radius)
+    {
+        Vector2 closest = path[0];
+        float minDistSq = (path[0] - center).sqrMagnitude;
+        foreach (var vertex in path)
+        {
+            float distSq = (vertex - center).sqrMagnitude;
+
+            if (distSq < minDistSq)
+            {
+                minDistSq = distSq;
+                closest = vertex;
+            }
+        }
+        return closest;
     }
 }

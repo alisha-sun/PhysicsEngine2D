@@ -1,4 +1,5 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using UnityEngine;
@@ -28,7 +29,7 @@ public class PhysicsObjectComponent : MonoBehaviour
 
 
     public PhysicsObject self; //might not even need this
-    void Start()
+    public void Initialize()
     {
         if (isStatic)
         {
@@ -54,6 +55,13 @@ public class PhysicsObjectComponent : MonoBehaviour
         {
             colliders.Add(new PolygonCollider(obj, poly));
             poly.isTrigger = true;
+        }
+
+        CircleCollider2D[] circleColliders = obj.Instance.GetComponents<CircleCollider2D>();
+        foreach (CircleCollider2D circle in circleColliders)
+        {
+            colliders.Add(new CircleCollider(obj, circle));
+            circle.isTrigger = true;
         }
 
         return colliders;

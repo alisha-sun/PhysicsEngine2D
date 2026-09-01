@@ -29,8 +29,6 @@ public class StaticObject : PhysicsObject //should never need to be sent over th
         _instance = instance;
         _colliders = PhysicsObjectComponent.GetColliders(this).ToArray();
         _regions = GetRegions();
-
-        PhysicsEngine.instance.gameState.Register(this);
     }
 
     public Vector2Int[] GetRegions() { //temporary; will calculate exact regions later

@@ -66,8 +66,6 @@ public class DynamicObject : PhysicsObject
         SetFreezeY(freezeY);
         SetFreezeRotation(freezeRotation);
         SetAnchor(anchor);
-
-        PhysicsEngine.instance.gameState.Register(this);
     }
 
 
@@ -255,7 +253,7 @@ public class DynamicObject : PhysicsObject
         float d = 1/_mass + r.x*r.x / _inertia;
 
         Vector2 j = Vectors2D.SolveSystem(a, b, b, d, v);
-        Debug2.DrawArrow(LocalToWorld_Point(_anchor),j,Color.blue,Time.fixedDeltaTime);
+        //Debug2.DrawArrow(LocalToWorld_Point(_anchor),j,Color.blue,Time.fixedDeltaTime);
         ApplyImpulse(j, _anchor, true, true, true);
     }
 
