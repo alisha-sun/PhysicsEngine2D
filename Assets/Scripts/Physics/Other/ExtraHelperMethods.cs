@@ -27,6 +27,7 @@ public class Debug2
 }
 
 public class Vectors2D {
+    const float EPSILON = 1e-5f; 
     public static Vector2 SolveSystem(Vector2 point1, Vector2 dir1, Vector2 point2, Vector2 dir2)
     {
         if (dir1.normalized == dir2.normalized) return new Vector2(float.NaN, float.NaN);
@@ -34,7 +35,14 @@ public class Vectors2D {
         return point1 + t * dir1;
     }
 
-    private static float Cross(Vector2 a, Vector2 b)
+    public static Vector2 SolveSystem(float a, float b, float c, float d, Vector2 v) // [a,b ; c,d]x = v
+    {
+        float det = a * d - b * c;
+        if (Mathf.Abs(det) < EPSILON) return new Vector2(float.NaN,float.NaN);
+        else return new Vector2(d*v.x - b*v.y, -c*v.x + a*v.y) / det; // x = (1 / (a * d - b * c))[d,-b ; -c,a]v
+    }
+
+    public static float Cross(Vector2 a, Vector2 b) //same as Dot(a rotated 90 degrees CCW, b)
     {
         return a.x * b.y - a.y * b.x;
     }

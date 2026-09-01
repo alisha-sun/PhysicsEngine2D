@@ -582,16 +582,16 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   isStatic: 0
-  velocity: {x: 0, y: 0}
+  velocity: {x: 1, y: 0}
   maxVelocityX: Infinity
   maxVelocityY: Infinity
   drag: 1
   mass: 1
   angularVelocity: 0
   maxAngularVelocity: Infinity
-  angularDrag: 0
+  angularDrag: 1
   inertia: 1
-  gravityScale: 0
+  gravityScale: 1
   terminalVelocity: Infinity
   freezeX: 0
   freezeY: 0
@@ -708,13 +708,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 112264128}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0.07769227, y: 1.28, z: 0}
+  m_LocalRotation: {x: -0, y: -0, z: 0.5953231, w: 0.8034864}
+  m_LocalPosition: {x: -3.63, y: 2.46, z: 0}
   m_LocalScale: {x: 1, y: 2, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 73.071}
 --- !u!1 &119416064
 GameObject:
   m_ObjectHideFlags: 0
@@ -4910,13 +4910,13 @@ MonoBehaviour:
   velocity: {x: 0, y: 0}
   maxVelocityX: Infinity
   maxVelocityY: Infinity
-  drag: 10
+  drag: 0
   mass: 10
   angularVelocity: 0
   maxAngularVelocity: Infinity
-  angularDrag: 1
-  inertia: 1
-  gravityScale: 0
+  angularDrag: 0
+  inertia: 6.7
+  gravityScale: 1
   terminalVelocity: Infinity
   freezeX: 0
   freezeY: 0
@@ -5028,7 +5028,7 @@ Transform:
   m_GameObject: {fileID: 1928943007}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 2.2185, y: 0, z: 0}
+  m_LocalPosition: {x: 0.05, y: 2.04, z: 0}
   m_LocalScale: {x: 1.0848093, y: 0.5, z: 0}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -6233,17 +6233,17 @@ MonoBehaviour:
   velocity: {x: 0, y: 0}
   maxVelocityX: Infinity
   maxVelocityY: Infinity
-  drag: 10
+  drag: 0
   mass: 10
   angularVelocity: 0
   maxAngularVelocity: Infinity
   angularDrag: 1
   inertia: 1
-  gravityScale: 0
+  gravityScale: 1
   terminalVelocity: Infinity
   freezeX: 0
   freezeY: 0
-  freezeRotation: 0
+  freezeRotation: 1
   anchor: {x: NaN, y: NaN}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:

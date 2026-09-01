@@ -1,11 +1,7 @@
-﻿using System;
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using Unity.VisualScripting;
+using UnityEditor;
 using UnityEngine;
-using UnityEngine.UIElements;
 public interface IPhysicsCollider
 {
     PhysicsObject Owner { get; }
@@ -50,6 +46,109 @@ public struct Collision
             if (b is CircleCollider circleB) return new Collision(circleA, circleB);
         }
         return new Collision(float.NaN);
+    }
+
+    public void Resolve() {
+        float impulse0 = 0;
+        float impulse1 = 0;
+        float e = Restitution();
+
+        if (contactPoints == null || contactPoints.Length == 0) return;
+        else if (contactPoints.Length == 1) {
+            Edge centerToContact_reference = new Edge(reference.Owner.Position, contactPoints[0]);
+            Edge centerToContact_incident = new Edge(incident.Owner.Position, contactPoints[0]);
+
+            float rv_n = Vector2.Dot(
+                  incident.Owner.GetVelocityAtPoint(contactPoints[0], true) - reference.Owner.GetVelocityAtPoint(contactPoints[0], true)
+                , normal); //relative velocity along the collision normal (negative if the space between the two objects is decreasing)
+
+            if (rv_n < 0) impulse0 = (-(1 + e) * rv_n) /
+                ( (1 / reference.Owner.Mass) + (1 / incident.Owner.Mass) +
+                (Mathf.Pow(Vectors2D.Cross(centerToContact_reference.tangent, normal), 2) / reference.Owner.Inertia) +
+                (Mathf.Pow(Vectors2D.Cross(centerToContact_incident.tangent, normal), 2) / incident.Owner.Inertia)   );
+        }
+        else
+        {
+
+            Edge centerToContact0_reference = new Edge(reference.Owner.Position, contactPoints[0]);
+            Edge centerToContact0_incident = new Edge(incident.Owner.Position, contactPoints[0]);
+            Edge centerToContact1_reference = new Edge(reference.Owner.Position, contactPoints[1]);
+            Edge centerToContact1_incident = new Edge(incident.Owner.Position, contactPoints[1]);
+
+            float rv_n0 = Vector2.Dot(
+                  incident.Owner.GetVelocityAtPoint(contactPoints[0], true) - reference.Owner.GetVelocityAtPoint(contactPoints[0], true)
+                , normal); //relative velocity along the collision normal at the first contact point
+
+            float rv_n1 = Vector2.Dot(
+                  incident.Owner.GetVelocityAtPoint(contactPoints[1], true) - reference.Owner.GetVelocityAtPoint(contactPoints[1], true)
+                , normal); //relative velocity along the collision normal at the second contact point
+
+            Vector2 impulseMagnitudes;
+            if (rv_n0 >= 0 && rv_n1 >= 0) return;
+            else if (rv_n0 >= 0)
+            {
+                impulseMagnitudes = Vectors2D.SolveSystem(CalculateContactVelocityCoefficient(0, 0), CalculateContactVelocityCoefficient(0, 1),
+                                                          CalculateContactVelocityCoefficient(1, 0), CalculateContactVelocityCoefficient(1, 1),
+                                                          new Vector2(0, -(1 + e) * rv_n1)                                                   );
+            }
+            else if (rv_n1 >= 0)
+            {
+                impulseMagnitudes = Vectors2D.SolveSystem(CalculateContactVelocityCoefficient(0, 0), CalculateContactVelocityCoefficient(0, 1),
+                                                          CalculateContactVelocityCoefficient(1, 0), CalculateContactVelocityCoefficient(1, 1),
+                                                          new Vector2(-(1 + e) * rv_n0, 0)                                                   );
+            }
+            else {
+                impulseMagnitudes = Vectors2D.SolveSystem(CalculateContactVelocityCoefficient(0, 0), CalculateContactVelocityCoefficient(0, 1),
+                                                          CalculateContactVelocityCoefficient(1, 0), CalculateContactVelocityCoefficient(1, 1),
+                                                          new Vector2(-(1 + e) * rv_n0, -(1 + e) * rv_n1)                                    );
+            }
+
+            if (rv_n0 < 0) impulse0 = impulseMagnitudes.x;
+            if (rv_n1 < 0) impulse1 = impulseMagnitudes.y;
+        }
+
+        float ratio = PercentMass_Reference();
+        if (reference.Owner is DynamicObject d1)
+        {
+            d1.ApplyImpulse(-impulse0 * normal, d1.WorldToLocal_Point(contactPoints[0]));
+            if (contactPoints.Length > 1) d1.ApplyImpulse(-impulse1 * normal, d1.WorldToLocal_Point(contactPoints[1]));
+            d1.SetPosition(d1.Position - penetration * normal * (1 - ratio));
+        }
+
+        if (incident.Owner is DynamicObject d2)
+        {
+            d2.ApplyImpulse(impulse0 * normal, d2.WorldToLocal_Point(contactPoints[0]));
+            if (contactPoints.Length == 2) d2.ApplyImpulse(impulse1 * normal, d2.WorldToLocal_Point(contactPoints[1]));
+            d2.SetPosition(d2.Position + penetration * normal * ratio);
+        }
+    }
+
+    private float PercentMass_Reference()
+    {
+        if (reference.Owner.Mass == float.PositiveInfinity)
+        {
+            if (incident.Owner.Mass == float.PositiveInfinity) return .5f;
+            else return 1f;
+        }
+        else if (incident.Owner.Mass == float.PositiveInfinity) return 0;
+        else return (reference.Owner.Mass / (reference.Owner.Mass + incident.Owner.Mass));
+    }
+
+    private float Restitution()
+    {
+        return 1; //consider physics materials later
+    }
+
+    private float CalculateContactVelocityCoefficient(int v_index, int j_index) { //i worked through the algebra myself :/
+        if (v_index > 1 || j_index > 1 || v_index < 0 || j_index < 0) return float.NaN;
+        Edge a_j = new Edge(incident.Owner.Position, contactPoints[j_index]);
+        Edge a_v = new Edge(incident.Owner.Position, contactPoints[v_index]);
+        Edge b_j = new Edge(reference.Owner.Position, contactPoints[j_index]);
+        Edge b_v = new Edge(reference.Owner.Position, contactPoints[v_index]);
+        return Vector2.Dot(
+            (normal / incident.Owner.Mass) + (Vectors2D.Cross(a_j.tangent, normal) * a_v.tangent.magnitude * a_v.normal / incident.Owner.Inertia) +
+            (normal / reference.Owner.Mass) + (Vectors2D.Cross(b_j.tangent, normal) * b_v.tangent.magnitude * b_v.normal / reference.Owner.Inertia)
+            , normal);
     }
 
     private Collision(PolygonCollider polyA, PolygonCollider polyB) //using Separating Axis Theorem
