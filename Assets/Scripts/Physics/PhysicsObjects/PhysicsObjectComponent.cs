@@ -68,6 +68,12 @@ public abstract class PhysicsObject
     public abstract float Rotation { get; }
     public abstract Vector2 Scale { get; }
 
+    public abstract Vector2 Velocity { get; }
+    public abstract float Mass { get; }
+
+    public abstract float AngularVelocity { get; }
+    public abstract float Inertia { get; }
+
     public Vector2 LocalToWorld_Point(Vector2 point)
     {
         Vector2 scaled = Vector2.Scale(point, Scale);
@@ -122,4 +128,6 @@ public abstract class PhysicsObject
             -direction.x * sin + direction.y * cos
         );
     }
+
+    public abstract Vector2 GetVelocityAtPoint(Vector2 point, bool givenWorldCoorinates = false);
 }

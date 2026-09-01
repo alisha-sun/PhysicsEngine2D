@@ -1,5 +1,6 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+using UnityEditor;
 using UnityEngine;
 
 public class StaticObject : PhysicsObject //should never need to be sent over the network
@@ -10,6 +11,14 @@ public class StaticObject : PhysicsObject //should never need to be sent over th
     private Vector2 _position;                                  public override Vector2 Position => _position;
     private float _rotation;                                    public override float Rotation => _rotation; // radians
     private Vector2 _scale;                                     public override Vector2 Scale => _scale; // radians
+
+
+                                                                public override Vector2 Velocity => Vector2.zero;
+                                                                public override float Mass => float.PositiveInfinity;
+
+                                                                public override float AngularVelocity => 0;
+                                                                public override float Inertia => float.PositiveInfinity;
+
 
     private Vector2Int[] _regions;                              public IReadOnlyList<Vector2Int> Regions => _regions;
 
@@ -59,5 +68,10 @@ public class StaticObject : PhysicsObject //should never need to be sent over th
         }
 
         return arr;
+    }
+
+    public override Vector2 GetVelocityAtPoint(Vector2 point, bool givenWorldCoorinates = false)
+    {
+        return Vector2.zero;
     }
 }

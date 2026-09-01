@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
+using static UnityEngine.Rendering.VolumeComponent;
 
 public class DynamicObject : PhysicsObject
 {
@@ -16,15 +17,15 @@ public class DynamicObject : PhysicsObject
     private float _rotation;                                    public override float Rotation => _rotation;                // radians
     private Vector2 _scale;                                     public override Vector2 Scale => _scale;
 
-    private Vector2 _velocity;                                  public Vector2 Velocity => _velocity;                       // m/s
+    private Vector2 _velocity;                                  public override Vector2 Velocity => _velocity;              // m/s
     private Vector2 _maxVelocity;                               public Vector2 MaxVelocity => _maxVelocity;
     private float _drag = 0f;                                   public float Drag => _drag;                                 // not sure what unit lol
-    private float _mass = 1f;                                   public float Mass => _mass;                                 // kg
+    private float _mass = 1f;                                   public override float Mass => _mass;                        // kg
 
-    private float _angularVelocity;                             public float AngularVelocity => _angularVelocity;           // radians/s
+    private float _angularVelocity;                             public override float AngularVelocity => _angularVelocity;  // radians/s CCW
     private float _maxAngularVelocity;                          public float MaxAngularVelocity => _maxAngularVelocity;
     private float _angularDrag = 0f;                            public float AngularDrag => _angularDrag;                   // not sure what unit lol
-    public float _inertia = 1f;                                 public float Inertia => _inertia;                           // we didnt study rotational motion in-depth in Physics 12... units are kgm^2 ? I'll do my research later.
+    public float _inertia = 1f;                                 public override float Inertia => _inertia;                  // we didnt study rotational motion in-depth in Physics 12... units are kgm^2 ? I'll do my research later.
 
     private float _gravityScale;                                public float GravityScale => _gravityScale;
     private float _terminalVelocity;                            public float TerminalVelocity => _terminalVelocity;
@@ -33,6 +34,7 @@ public class DynamicObject : PhysicsObject
     private bool _freezeY;                                      public bool FreezeY => _freezeY;                            // prevents changes in position and velocity for Y
     private bool _freezeRotation;                               public bool FreezeRotation => _freezeRotation;              // prevents changes in rotation and angular velocity
     private Vector2 _anchor;                                    public Vector2 Anchor => _anchor;                           // in local coordinates
+    private Vector2 _anchorVelocity;
 
     private (Vector2Int min, Vector2Int max) _boundingRegions;  public (Vector2Int min, Vector2Int max) BoundingRegions => _boundingRegions;
 
@@ -69,47 +71,62 @@ public class DynamicObject : PhysicsObject
     }
 
 
-    /* BASIC SETTERS */
+    /* BASIC SETTERS/GETTERS */
 
-    public void SetPosition(Vector2 pos, bool overrideFreezeX = false, bool overrideFreezeY = false) {
+    public void AddPosition(Vector2 deltaP, bool overrideMaxX = false, bool overrideMaxY = false, bool overrideFreezeX = false, bool overrideFreezeY = false)
+    {
+        SetPosition(_position + deltaP, overrideFreezeX, overrideFreezeY);
+    }
+    public void SetPosition(Vector2 pos, bool overrideFreezeX = false, bool overrideFreezeY = false, bool updateRegions = true) {
         if (overrideFreezeX || !_freezeX) _position.x = pos.x;
         if (overrideFreezeY || !_freezeY) _position.y = pos.y;
-    }
-    public void SetPosition_Anchor(Vector2 worldPos, bool overrideFreezeX = false, bool overrideFreezeY = false)
-    {
-        if (float.IsNaN(_anchor.x)) SetPosition(worldPos, overrideFreezeX, overrideFreezeY);
-        else SetPosition(_position + worldPos - LocalToWorld_Point(Anchor), overrideFreezeX, overrideFreezeY);
+        if (updateRegions) PhysicsEngine.instance.gameState.regions.UpdateRegions(this);
     }
 
-    public void SetRotation(float rot, bool overrideFreeze = false)
+    public void AddRotation(float deltaR, bool overrideFreeze = false)
+    {
+        SetRotation(_rotation + deltaR, overrideFreeze);
+    }
+    public void SetRotation(float rot, bool overrideFreeze = false, bool updateRegions = true)
     {
         if (overrideFreeze || !_freezeRotation) _rotation = Mathf.Repeat(rot, 2f * Mathf.PI);
+        if (updateRegions) PhysicsEngine.instance.gameState.regions.UpdateRegions(this);
     }
 
-    public void SetScale(Vector2 scale)
+    public void SetScale(Vector2 scale, bool updateRegions = true)
     {
         _scale.x = scale.x;
         _scale.y = scale.y;
+        if (updateRegions) PhysicsEngine.instance.gameState.regions.UpdateRegions(this);
     }
 
 
+    public void AddVelocity(Vector2 deltaV, bool overrideMaxX = false, bool overrideMaxY = false, bool overrideFreezeX = false, bool overrideFreezeY = false) {
+        SetVelocity(_velocity + deltaV, overrideMaxX, overrideMaxY, overrideFreezeX, overrideFreezeY);
+    }
     public void SetVelocity(Vector2 v, bool overrideMaxX = false, bool overrideMaxY = false, bool overrideFreezeX = false, bool overrideFreezeY = false) {
         SetVelocityX(v.x, overrideMaxX, overrideFreezeX);
         SetVelocityY(v.y, overrideMaxY, overrideFreezeY);
     }
-    public void SetVelocityX(float v_x, bool overrideMax = false, bool overrideFreeze = false)
+    private void SetVelocityX(float v_x, bool overrideMax = false, bool overrideFreeze = false)
     {
         if (_freezeX && !overrideFreeze) return;
         if (overrideMax) _velocity.x = v_x;
         else if (v_x > 0) _velocity.x = Mathf.Min(v_x, _maxVelocity.x);
         else _velocity.x = Mathf.Max(v_x, -_maxVelocity.x);
     }
-    public void SetVelocityY(float v_y, bool overrideMax = false, bool overrideFreeze = false)
+    private void SetVelocityY(float v_y, bool overrideMax = false, bool overrideFreeze = false)
     {
         if (_freezeY && !overrideFreeze) return;
         if (overrideMax) _velocity.y = v_y;
         else if (v_y > 0) _velocity.y = Mathf.Min(v_y, _maxVelocity.y);
         else _velocity.y = Mathf.Max(v_y, -_maxVelocity.y);
+    }
+    public override Vector2 GetVelocityAtPoint(Vector2 point, bool givenWorldCoordinates = false) {
+        Edge centerToPoint_world;
+        if (givenWorldCoordinates) centerToPoint_world = new Edge(_position, point);
+        else centerToPoint_world = new Edge(_position, LocalToWorld_Point(point));
+        return _velocity + _angularVelocity * centerToPoint_world.tangent.magnitude * centerToPoint_world.normal;
     }
 
     public void SetMaxVelocityX(float v) {
@@ -131,6 +148,10 @@ public class DynamicObject : PhysicsObject
     }
 
 
+    public void AddAngularVelocity(float deltaW, bool overrideMax = false, bool overrideFreeze = false)
+    {
+        SetAngularVelocity(_angularVelocity + deltaW, overrideMax, overrideFreeze);
+    }
     public void SetAngularVelocity(float w, bool overrideMax = false, bool overrideFreeze = false) {
         if (_freezeRotation && !overrideFreeze) return;
         if (overrideMax) _angularVelocity = w;
@@ -178,11 +199,22 @@ public class DynamicObject : PhysicsObject
 
     public void SetAnchor(Vector2 anchor) {
         if (float.IsNaN(anchor.x) || float.IsNaN(anchor.y)) RemoveAnchor();
-        else _anchor = anchor;
+        else { 
+            _anchor = anchor;
+            _anchorVelocity = Vector2.zero;
+        }
     }
     public void RemoveAnchor() {
         _anchor.x = float.NaN;
         _anchor.y = float.NaN;
+    }
+    public void SetPosition_Anchor(Vector2 worldPos, bool overrideFreezeX = false, bool overrideFreezeY = false, bool updateRegions = true)
+    {
+        if (float.IsNaN(_anchor.x)) SetPosition(worldPos, overrideFreezeX, overrideFreezeY, updateRegions);
+        else SetPosition(_position + worldPos - LocalToWorld_Point(_anchor), overrideFreezeX, overrideFreezeY, updateRegions);
+    }
+    public void SetVelocity_Anchor(Vector2 v) {
+        _anchorVelocity = v;
     }
 
 
@@ -210,36 +242,43 @@ public class DynamicObject : PhysicsObject
         float angularDrag = -_angularVelocity * _angularDrag / _inertia;
 
         if (_angularVelocity * _angularVelocity + angularDrag * time < 0) _angularVelocity = 0;
-        else _angularVelocity += + angularDrag * time;
+        else AddAngularVelocity(angularDrag * time);
     }
 
-    public void ApplyForce(Vector2 force, float time, Vector2 applicationPointLocal, bool overrideMaxX = false, bool overrideMaxY = false, bool overrideMaxAngularVelocity = false, bool overrideFreezeX = false, bool overrideFreezeY = false, bool overrideFreezeRotation = false)
+    public void EnforceAnchor() {
+        if (float.IsNaN(_anchor.x)) return;
+        Vector2 r = LocalToWorld_Point(_anchor) - _position;
+        Vector2 v = -_velocity + new Vector2(_angularVelocity*r.y, -_angularVelocity*r.x) + _anchorVelocity;
+
+        float a = 1/_mass + r.y*r.y / _inertia;
+        float b = -r.y * r.x / _inertia;
+        float d = 1/_mass + r.x*r.x / _inertia;
+
+        Vector2 j = Vectors2D.SolveSystem(a, b, b, d, v);
+        Debug2.DrawArrow(LocalToWorld_Point(_anchor),j,Color.blue,Time.fixedDeltaTime);
+        ApplyImpulse(j, _anchor, true, true, true);
+    }
+
+    public void ApplyForce(Vector2 force, float time, Vector2 applicationPoint_local, bool overrideMaxX = false, bool overrideMaxY = false, bool overrideMaxAngularVelocity = false, bool overrideFreezeX = false, bool overrideFreezeY = false, bool overrideFreezeRotation = false)
     {
-        ApplyTorque(force, time, applicationPointLocal, overrideMaxAngularVelocity, overrideFreezeRotation); //apply to the center of mass by default
-        SetVelocity(force / _mass * time, overrideMaxX, overrideMaxY, overrideFreezeX, overrideFreezeY);
+        ApplyTorque(force, time, applicationPoint_local, overrideMaxAngularVelocity, overrideFreezeRotation); //apply to the center of mass by default
+        AddVelocity(force / _mass * time, overrideMaxX, overrideMaxY, overrideFreezeX, overrideFreezeY);
     }
     public void ApplyForce(Vector2 force, float time, bool overrideMaxX = false, bool overrideMaxY = false, bool overrideMaxAngularVelocity = false, bool overrideFreezeX = false, bool overrideFreezeY = false, bool overrideFreezeRotation = false) {
         ApplyTorque(force, time, Vector2.zero, overrideMaxAngularVelocity, overrideFreezeRotation); //apply to the center of mass by default
-        SetVelocity(force / _mass * time, overrideMaxX, overrideMaxY, overrideFreezeX, overrideFreezeY);
+        AddVelocity(force / _mass * time, overrideMaxX, overrideMaxY, overrideFreezeX, overrideFreezeY);
     }
 
-    public void ApplyTorque(Vector2 force, float time, Vector2 applicationPointLocal, bool overrideMaxAngularVelocity = false, bool overrideFreezeRotation = false)
+    public void ApplyTorque(Vector2 force, float time, Vector2 applicationPoint_local, bool overrideMaxAngularVelocity = false, bool overrideFreezeRotation = false)
     {
-        Vector2 pivot = _anchor;
-        if (float.IsNaN(pivot.x)) pivot = Vector2.zero;
-        pivot = LocalToWorld_Point(pivot);
+        Vector2 applicationPoint = LocalToWorld_Point(applicationPoint_local);
+        float deltaW = Vectors2D.Cross(applicationPoint - _position, force) / _inertia * time; // Nm counterclockwise / kgm^2 * s = N/kgm = (kgm^2/s^2) / kgm^2 * s = 1/s = radians per seconds
 
-
-        Vector2 applicationPoint = LocalToWorld_Point(applicationPointLocal);
-        Vector2 arm = applicationPoint - pivot;
-        Vector2 normal = new Vector2(-arm.y, arm.x).normalized;
-        float w = (arm.magnitude * Vector2.Dot(force, normal)) / _inertia * time; // Nm counterclockwise / kgm^2 * s = N/kgm = (kgm^2/s^2) / kgm^2 * s = 1/s = radians per seconds
-
-        SetAngularVelocity(_angularVelocity + w, overrideMaxAngularVelocity, overrideFreezeRotation);
+        AddAngularVelocity(deltaW, overrideMaxAngularVelocity, overrideFreezeRotation);
     }
 
-    public void ApplyImpulse(Vector2 impulse, Vector2 applicationPointLocal, bool overrideMaxX = false, bool overrideMaxY = false, bool overrideMaxAngularVelocity = false, bool overrideFreezeX = false, bool overrideFreezeY = false, bool overrideFreezeRotation = false) {
-        ApplyForce(impulse, 1f, applicationPointLocal, overrideMaxX, overrideMaxY, overrideMaxAngularVelocity, overrideFreezeX, overrideFreezeY, overrideFreezeRotation);
+    public void ApplyImpulse(Vector2 impulse, Vector2 applicationPoint_local, bool overrideMaxX = false, bool overrideMaxY = false, bool overrideMaxAngularVelocity = false, bool overrideFreezeX = false, bool overrideFreezeY = false, bool overrideFreezeRotation = false) {
+        ApplyForce(impulse, 1f, applicationPoint_local, overrideMaxX, overrideMaxY, overrideMaxAngularVelocity, overrideFreezeX, overrideFreezeY, overrideFreezeRotation);
     }
 
 

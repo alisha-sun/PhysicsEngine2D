@@ -1,6 +1,8 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using static UnityEngine.Rendering.VolumeComponent;
 
 public class GameState
 {
@@ -23,10 +25,10 @@ public class GameState
             obj.ApplyGravity(time);
             obj.ApplyDrag(time);
             obj.ApplyAngularDrag(time);
+            obj.EnforceAnchor();
 
-            obj.SetPosition(obj.Position + obj.Velocity * time);
-            obj.SetRotation(obj.Rotation + obj.AngularVelocity * time);
-            regions.UpdateRegions(obj);
+            obj.AddPosition(obj.Velocity * time, false, false, false, false);
+            obj.AddRotation(obj.AngularVelocity * time);
         }
         foreach (DynamicObject obj in objects)
         {
@@ -39,11 +41,9 @@ public class GameState
             }
 
             Vector2 impulse = new Vector2(0, 0);
-            foreach (Collision collision in collisions) { 
-                
+            foreach (Collision collision in collisions) {
+                collision.Resolve();
             }
-
-            regions.UpdateRegions(obj);
         }
     }
 
