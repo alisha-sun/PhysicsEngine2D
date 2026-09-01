@@ -14,6 +14,8 @@ public class Cursor : MonoBehaviour
     Vector2 mouseVelocity;
     float t = 0f;
 
+    public GameObject original;
+
     private void Start()
     {
         prevMousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
@@ -28,14 +30,19 @@ public class Cursor : MonoBehaviour
             prevMousePos = mousePos;
             t = 0f;
         }
-        Debug.Log(mouseVelocity);
 
         if (Input.GetMouseButtonDown(0)) {
             Vector2 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
 
             Collider2D hit = Physics2D.OverlapPoint(mousePos);
 
-            if (hit != null && hit.gameObject.GetComponent<PhysicsObjectComponent>() != null)
+            if (hit == null) { 
+                GameObject copy = Instantiate(original, (Vector3)mousePos, Quaternion.identity);
+                PhysicsObjectComponent c = copy.GetComponent<PhysicsObjectComponent>();
+                c.Initialize();
+                PhysicsEngine.instance.gameState.Register(c.self);
+            }
+            else if (hit != null && hit.gameObject.GetComponent<PhysicsObjectComponent>() != null)
             {
                 PhysicsObject physicsObject = hit.gameObject.GetComponent<PhysicsObjectComponent>().self;
                 if (physicsObject != null && physicsObject is DynamicObject d)
