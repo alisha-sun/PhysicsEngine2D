@@ -3,6 +3,10 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Assertions;
+using UnityEngine.UIElements;
+using static UnityEditor.PlayerSettings;
+using static UnityEngine.Rendering.DebugUI.Table;
 using static UnityEngine.Rendering.VolumeComponent;
 
 public class DynamicObject : PhysicsObject
@@ -76,6 +80,8 @@ public class DynamicObject : PhysicsObject
         SetPosition(_position + deltaP, overrideFreezeX, overrideFreezeY);
     }
     public void SetPosition(Vector2 pos, bool overrideFreezeX = false, bool overrideFreezeY = false, bool updateRegions = true) {
+        if (!Vectors2D.IsFinite(pos)) throw new ArgumentOutOfRangeException(nameof(pos), pos, "Position must be finite");
+
         if (overrideFreezeX || !_freezeX) _position.x = pos.x;
         if (overrideFreezeY || !_freezeY) _position.y = pos.y;
         if (updateRegions) PhysicsEngine.instance.gameState.regions.UpdateRegions(this);
@@ -87,12 +93,16 @@ public class DynamicObject : PhysicsObject
     }
     public void SetRotation(float rot, bool overrideFreeze = false, bool updateRegions = true)
     {
+        if (!float.IsFinite(rot)) throw new ArgumentOutOfRangeException(nameof(rot), rot, "Rotation must be finite");
+
         if (overrideFreeze || !_freezeRotation) _rotation = Mathf.Repeat(rot, 2f * Mathf.PI);
         if (updateRegions) PhysicsEngine.instance.gameState.regions.UpdateRegions(this);
     }
 
     public void SetScale(Vector2 scale, bool updateRegions = true)
     {
+        if (!Vectors2D.IsFinite(scale)) throw new ArgumentOutOfRangeException(nameof(scale), scale, "Scale must be finite");
+
         _scale.x = scale.x;
         _scale.y = scale.y;
         if (updateRegions) PhysicsEngine.instance.gameState.regions.UpdateRegions(this);
@@ -103,6 +113,8 @@ public class DynamicObject : PhysicsObject
         SetVelocity(_velocity + deltaV, overrideMaxX, overrideMaxY, overrideFreezeX, overrideFreezeY);
     }
     public void SetVelocity(Vector2 v, bool overrideMaxX = false, bool overrideMaxY = false, bool overrideFreezeX = false, bool overrideFreezeY = false) {
+        if (!Vectors2D.IsFinite(v)) throw new ArgumentOutOfRangeException(nameof(v), v, "Velocity must be finite");
+
         SetVelocityX(v.x, overrideMaxX, overrideFreezeX);
         SetVelocityY(v.y, overrideMaxY, overrideFreezeY);
     }
@@ -128,21 +140,29 @@ public class DynamicObject : PhysicsObject
     }
 
     public void SetMaxVelocityX(float v) {
+        if (float.IsNaN(v)) throw new ArgumentException("MaxVelocityX cannot be NaN", nameof(v));
+
         _maxVelocity.x = Math.Abs(v);
     }
     public void SetMaxVelocityY(float v) {
+        if (float.IsNaN(v)) throw new ArgumentException("MaxVelocityY cannot be NaN", nameof(v));
+
         _maxVelocity.y = Math.Abs(v);
     }
 
     public void SetDrag(float drag)
     {
-        if (drag < 0) throw new ArgumentException("Drag must be non-negative", nameof(drag));
+        if (float.IsNaN(drag)) throw new ArgumentException("Drag cannot be NaN", nameof(drag));
+        if (drag < 0) throw new ArgumentOutOfRangeException("Drag must be non-negative", nameof(drag));
+
         _drag = drag;
     }
     public void SetMass(float mass)
     {
-        if (mass < 0.1f) throw new ArgumentException("Mass must be at least 0.1", nameof(mass));
-        else _mass = mass;
+        if (float.IsNaN(mass)) throw new ArgumentException("Mass cannot be NaN", nameof(mass));
+        if (mass < 0.1f) throw new ArgumentOutOfRangeException("Mass must be at least 0.1", nameof(mass));
+
+        _mass = mass;
     }
 
 
@@ -151,6 +171,8 @@ public class DynamicObject : PhysicsObject
         SetAngularVelocity(_angularVelocity + deltaW, overrideMax, overrideFreeze);
     }
     public void SetAngularVelocity(float w, bool overrideMax = false, bool overrideFreeze = false) {
+        if (!float.IsFinite(w)) throw new ArgumentOutOfRangeException(nameof(w), w, "Angular velocity must be finite");
+
         if (_freezeRotation && !overrideFreeze) return;
         if (overrideMax) _angularVelocity = w;
         else if (w > 0) _angularVelocity = Mathf.Min(w, _maxAngularVelocity);
@@ -164,21 +186,29 @@ public class DynamicObject : PhysicsObject
 
     public void SetAngularDrag(float angularDrag)
     {
-        if (angularDrag < 0) throw new ArgumentException("Angular drag must be non-negative", nameof(angularDrag));
+        if (float.IsNaN(angularDrag)) throw new ArgumentException("Angular drag cannot be NaN", nameof(angularDrag));
+        if (angularDrag < 0) throw new ArgumentOutOfRangeException("Angular drag must be non-negative", nameof(angularDrag));
+
         _angularDrag = angularDrag;
     }
     public void SetInertia(float inertia)
     {
-        if (inertia < 0.1f) throw new ArgumentException("Inertia must be at least 0.1", nameof(inertia));
-        else _inertia = inertia;
+        if (float.IsNaN(inertia)) throw new ArgumentException("Inertia cannot be NaN", nameof(inertia));
+        if (inertia < 0.1f) throw new ArgumentOutOfRangeException("Inertia must be at least 0.1", nameof(inertia));
+
+        _inertia = inertia;
     }
 
 
     public void SetGravityScale(float scale) {
+        if (!float.IsFinite(scale)) throw new ArgumentOutOfRangeException(nameof(scale), scale, "Gravity scale must be finite");
+
         _gravityScale = scale;
     }
 
     public void SetTerminalVelocity(float v) {
+        if (float.IsNaN(v)) throw new ArgumentException("Terminal veloctiy cannot be NaN", nameof(v));
+
         _terminalVelocity = Math.Abs(v);
     }
 
@@ -197,7 +227,8 @@ public class DynamicObject : PhysicsObject
 
     public void SetAnchor(Vector2 anchor) {
         if (float.IsNaN(anchor.x) || float.IsNaN(anchor.y)) RemoveAnchor();
-        else { 
+        else if (!Vectors2D.IsFinite(anchor)) throw new ArgumentOutOfRangeException(nameof(anchor), anchor, "Anchor must be finite");
+        else {
             _anchor = anchor;
             _anchorVelocity = Vector2.zero;
         }
@@ -208,10 +239,13 @@ public class DynamicObject : PhysicsObject
     }
     public void SetPosition_Anchor(Vector2 worldPos, bool overrideFreezeX = false, bool overrideFreezeY = false, bool updateRegions = true)
     {
-        if (float.IsNaN(_anchor.x)) SetPosition(worldPos, overrideFreezeX, overrideFreezeY, updateRegions);
+        if (!Vectors2D.IsFinite(worldPos)) throw new ArgumentOutOfRangeException(nameof(worldPos), worldPos, "Anchor position must be finite");
+        else if (float.IsNaN(_anchor.x)) SetPosition(worldPos, overrideFreezeX, overrideFreezeY, updateRegions);
         else SetPosition(_position + worldPos - LocalToWorld_Point(_anchor), overrideFreezeX, overrideFreezeY, updateRegions);
     }
     public void SetVelocity_Anchor(Vector2 v) {
+        if (!Vectors2D.IsFinite(v)) throw new ArgumentOutOfRangeException(nameof(v), v, "Anchor velocity must be finite");
+
         _anchorVelocity = v;
     }
 
@@ -219,14 +253,18 @@ public class DynamicObject : PhysicsObject
     /* PHYSICS METHODS */
 
     public void ApplyGravity(float time) {
-        if (!float.IsNaN(_anchor.x)) ApplyTorque(new Vector2(0, PhysicsEngine.instance.gravity * _mass * _gravityScale), time, Vector2.zero);
+        Debug.Assert(float.IsFinite(PhysicsEngine.instance.gravity));
+        if (!float.IsFinite(time)) throw new ArgumentOutOfRangeException(nameof(time), time, "Time must be finite");
+        if (time < 0) throw new ArgumentOutOfRangeException(nameof(time), time, "Time must be non-negative");
+
         if (_velocity.y > -_terminalVelocity) SetVelocityY(Mathf.Max(_velocity.y + PhysicsEngine.instance.gravity * _gravityScale * time, -_terminalVelocity));
     }
 
     public void ApplyDrag(float time) {
-        Vector2 dragForce = -_velocity * _drag;
+        if (!float.IsFinite(time)) throw new ArgumentOutOfRangeException(nameof(time), time, "Time must be finite");
+        if (time < 0) throw new ArgumentOutOfRangeException(nameof(time), time, "Time must be non-negative");
 
-        ApplyTorque(dragForce, time, Vector2.zero);
+        Vector2 dragForce = -_velocity * _drag;
 
         if (Vector2.Dot(_velocity, _velocity + dragForce / _mass * time) < 0)
         {
@@ -237,6 +275,9 @@ public class DynamicObject : PhysicsObject
     }
 
     public void ApplyAngularDrag(float time) {
+        if (!float.IsFinite(time)) throw new ArgumentOutOfRangeException(nameof(time), time, "Time must be finite");
+        if (time < 0) throw new ArgumentOutOfRangeException(nameof(time), time, "Time must be non-negative");
+
         float angularDrag = -_angularVelocity * _angularDrag / _inertia;
 
         if (_angularVelocity * _angularVelocity + angularDrag * time < 0) _angularVelocity = 0;
@@ -253,13 +294,13 @@ public class DynamicObject : PhysicsObject
         float d = 1/_mass + r.x*r.x / _inertia;
 
         Vector2 j = Vectors2D.SolveSystem(a, b, b, d, v);
-        //Debug2.DrawArrow(LocalToWorld_Point(_anchor),j,Color.blue,Time.fixedDeltaTime);
+
         ApplyImpulse(j, _anchor, true, true, true);
     }
 
     public void ApplyForce(Vector2 force, float time, Vector2 applicationPoint_local, bool overrideMaxX = false, bool overrideMaxY = false, bool overrideMaxAngularVelocity = false, bool overrideFreezeX = false, bool overrideFreezeY = false, bool overrideFreezeRotation = false)
     {
-        ApplyTorque(force, time, applicationPoint_local, overrideMaxAngularVelocity, overrideFreezeRotation); //apply to the center of mass by default
+        ApplyTorque(force, time, applicationPoint_local, overrideMaxAngularVelocity, overrideFreezeRotation);
         AddVelocity(force / _mass * time, overrideMaxX, overrideMaxY, overrideFreezeX, overrideFreezeY);
     }
     public void ApplyForce(Vector2 force, float time, bool overrideMaxX = false, bool overrideMaxY = false, bool overrideMaxAngularVelocity = false, bool overrideFreezeX = false, bool overrideFreezeY = false, bool overrideFreezeRotation = false) {
@@ -269,8 +310,13 @@ public class DynamicObject : PhysicsObject
 
     public void ApplyTorque(Vector2 force, float time, Vector2 applicationPoint_local, bool overrideMaxAngularVelocity = false, bool overrideFreezeRotation = false)
     {
+        if (!float.IsFinite(time)) throw new ArgumentOutOfRangeException(nameof(time), time, "Time must be finite");
+        if (time < 0) throw new ArgumentOutOfRangeException(nameof(time), time, "Time must be non-negative");
+        if (!Vectors2D.IsFinite(force)) throw new ArgumentOutOfRangeException(nameof(force), force, "Force must be finite");
+        if (!Vectors2D.IsFinite(applicationPoint_local)) throw new ArgumentOutOfRangeException(nameof(applicationPoint_local), applicationPoint_local, "Application point must be finite");
+
         Vector2 applicationPoint = LocalToWorld_Point(applicationPoint_local);
-        float deltaW = Vectors2D.Cross(applicationPoint - _position, force) / _inertia * time; // Nm counterclockwise / kgm^2 * s = N/kgm = (kgm^2/s^2) / kgm^2 * s = 1/s = radians per seconds
+        float deltaW = time * Vectors2D.Cross(applicationPoint - _position, force) / _inertia; // s * Nm counterclockwise / kgm^2 = Ns/kgm = ((kgm/s^2)s / kgm) / kgm^2 = 1/s = radians per seconds
 
         AddAngularVelocity(deltaW, overrideMaxAngularVelocity, overrideFreezeRotation);
     }

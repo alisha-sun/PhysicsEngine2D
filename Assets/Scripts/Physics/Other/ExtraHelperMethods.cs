@@ -14,7 +14,7 @@ public class Debug2
         Debug.DrawLine(end, end - direction*RATIO + new Vector2(-direction.y, direction.x)*RATIO, color, duration);
     }
 
-    public static void DrawX(Vector2 pos, Color color, float duration, float size = 1f) {
+    public static void DrawX(Vector2 pos, Color color, float duration, float size = .2f) {
         Vector2 v = new Vector2(1, 1).normalized*size/2;
         Debug.DrawLine(pos - v, pos + v, color, duration);
         v = new Vector2(-v.y, v.x);
@@ -23,6 +23,11 @@ public class Debug2
 
     public static void Draw(Edge edge, Color color, float duration) {
         Debug.DrawLine(edge.start,edge.end, color, duration);
+    }
+
+    public static void Draw(Collision c, float duration) {
+        foreach (Vector2 p in c.contactPoints) DrawX(p, Color.red, duration);
+        DrawArrow(c.reference.Owner.Position, c.normal*c.penetration, Color.green, duration);
     }
 }
 
@@ -38,8 +43,16 @@ public class Vectors2D {
     public static Vector2 SolveSystem(float a, float b, float c, float d, Vector2 v) // [a,b ; c,d]x = v
     {
         float det = a * d - b * c;
-        if (Mathf.Abs(det) < EPSILON) return new Vector2(float.NaN,float.NaN);
-        else return new Vector2(d*v.x - b*v.y, -c*v.x + a*v.y) / det; // x = (1 / (a * d - b * c))[d,-b ; -c,a]v
+        if (Mathf.Abs(det) < EPSILON)
+        {
+            Debug.Log("a: " + a +
+                      "\nb: " + b +
+                      "\nc: " + c +
+                      "\nd: " + d + 
+                      "\ndet: " + det);
+            return new Vector2(float.NaN, float.NaN);
+        }
+        else return new Vector2(d * v.x - b * v.y, -c * v.x + a * v.y) / det; // x = (1 / (a * d - b * c))[d,-b ; -c,a]v
     }
 
     public static float Cross(Vector2 a, Vector2 b) //same as Dot(a rotated 90 degrees CCW, b)
@@ -81,6 +94,8 @@ public class Vectors2D {
         }
         return maxVector;
     }
+
+    public static bool IsFinite(Vector2 v) { return float.IsFinite(v.x) && float.IsFinite(v.y); }
 }
 
 public struct Edge

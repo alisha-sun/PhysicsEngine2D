@@ -32,7 +32,7 @@ public class GameState
         }
         foreach (DynamicObject obj in objects)
         {
-            List<Collision> collisions = Collision.GetCollisions(obj, this);
+            /*List<Collision> collisions = Collision.GetCollisions(obj, this);
 
             SpriteRenderer rend = obj.Instance.GetComponent<SpriteRenderer>(); // <-- debug
             if (rend != null) {
@@ -43,7 +43,8 @@ public class GameState
             Vector2 impulse = new Vector2(0, 0);
             foreach (Collision collision in collisions) {
                 collision.Resolve();
-            }
+            }*/
+            Collision.DoCollisions(obj, this);
         }
     }
 
