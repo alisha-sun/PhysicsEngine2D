@@ -27,6 +27,7 @@ public class PhysicsObjectComponent : MonoBehaviour
     [SerializeField] private bool freezeRotation = false;
     [SerializeField] private Vector2 anchor = new Vector2(float.NaN, float.NaN);
 
+    private bool _isStatic;
 
     public PhysicsObject self; //might not even need this
     public void Initialize()
@@ -38,7 +39,37 @@ public class PhysicsObjectComponent : MonoBehaviour
         else {
             self = new DynamicObject(gameObject, velocity, maxVelocityX, maxVelocityY, drag, mass, angularVelocity, maxAngularVelocity, angularDrag, inertia, gravityScale, terminalVelocity, freezeX, freezeY, freezeRotation, anchor);
         }
+
+        _isStatic = isStatic;
     }
+
+    void Update() //for debugging
+    {
+        if (!_isStatic)
+        {
+            isStatic = _isStatic;
+
+            velocity = ((DynamicObject)self).Velocity;
+            maxVelocityX = ((DynamicObject)self).MaxVelocity.x;
+            maxVelocityY = ((DynamicObject)self).MaxVelocity.y;
+            drag = ((DynamicObject)self).Drag;
+            mass = ((DynamicObject)self).Mass;
+
+            angularVelocity = ((DynamicObject)self).AngularVelocity;
+            maxAngularVelocity = ((DynamicObject)self).MaxAngularVelocity;
+            angularDrag = ((DynamicObject)self).AngularDrag;
+            inertia = ((DynamicObject)self).Inertia;
+
+            gravityScale = ((DynamicObject)self).GravityScale;
+            terminalVelocity = ((DynamicObject)self).TerminalVelocity;
+
+            freezeX = ((DynamicObject)self).FreezeX;
+            freezeY = ((DynamicObject)self).FreezeY;
+            freezeRotation = ((DynamicObject)self).FreezeRotation;
+            anchor = ((DynamicObject)self).Anchor;
+        }
+    }
+
     public static List<IPhysicsCollider> GetColliders(PhysicsObject obj) //get and disable colliders
     {
         List<IPhysicsCollider> colliders = new List<IPhysicsCollider>();
