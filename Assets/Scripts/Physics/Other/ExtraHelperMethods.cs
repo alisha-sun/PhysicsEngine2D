@@ -55,7 +55,7 @@ public class Vectors2D {
         else return new Vector2(d * v.x - b * v.y, -c * v.x + a * v.y) / det; // x = (1 / (a * d - b * c))[d,-b ; -c,a]v
     }
 
-    public static float Cross(Vector2 a, Vector2 b) //same as Dot(a rotated 90 degrees CCW, b)
+    public static float Cross(Vector2 a, Vector2 b) //same as Dot(a rotated 90 degrees CCW, b) or Dot(a, b rotated 90 degrees CW)
     {
         return a.x * b.y - a.y * b.x;
     }
@@ -94,6 +94,30 @@ public class Vectors2D {
         }
         return maxVector;
     }
+    public static Vector2 FindClosestPoint(IReadOnlyList<Vector2> points, Vector2 pos)
+    {
+        Vector2 closest = points[0];
+        float minDistSq = (points[0] - pos).sqrMagnitude;
+        foreach (var vertex in points)
+        {
+            float distSq = (vertex - pos).sqrMagnitude;
+
+            if (distSq < minDistSq)
+            {
+                minDistSq = distSq;
+                closest = vertex;
+            }
+        }
+        return closest;
+    }
+
+    public static bool IsOverlapping((Vector2 min, Vector2 max) a, (Vector2 min, Vector2 max) b)
+    {
+        return IsOverlapping((a.min.x, a.max.x), (b.min.x, b.max.x)) && IsOverlapping((a.min.y, a.max.y), (b.min.y, b.max.y));
+    }
+    public static bool IsOverlapping((float min, float max) a, (float min, float max) b) {
+        return Mathf.Max(a.min, b.min) - Mathf.Min(a.max, b.max) <= 0;
+    }
 
     public static bool IsFinite(Vector2 v) { return float.IsFinite(v.x) && float.IsFinite(v.y); }
 }
@@ -110,7 +134,7 @@ public struct Edge
         this.end = end;
 
         this.tangent = end - start;
-        this.normal = new Vector2(-tangent.y, tangent.x).normalized;
+        this.normal = new Vector2(-tangent.y, tangent.x).normalized; //rotated 90 degrees ccw
     }
 
     public Edge(float f) {
@@ -118,9 +142,5 @@ public struct Edge
         this.end = new Vector2(f, f);
         this.tangent = new Vector2(f, f);
         this.normal = new Vector2(f, f);
-    }
-
-    public void FlipNormal() {
-        normal = -normal;
     }
 }

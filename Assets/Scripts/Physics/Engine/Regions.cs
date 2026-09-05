@@ -1,18 +1,33 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Collections.Generic;
+using Unity.Profiling;
 using UnityEngine;
 
-public class RegionManager
+internal class RegionManager
 {
+    static readonly ProfilerMarker getMarker = new("Get");
+
     public static float SIZE;
     private const float EPSILON = 0.000001f;
 
-    private Dictionary<Vector2Int, HashSet<PhysicsObject>> regions = new Dictionary<Vector2Int, HashSet<PhysicsObject>>();
+    internal Dictionary<Vector2Int, HashSet<PhysicsObject>> regions = new Dictionary<Vector2Int, HashSet<PhysicsObject>>();
+
+    /* PUBLIC INTERFACE */
 
     public void UpdateRegions(DynamicObject obj) { //update regions based on new bounding box
         RemoveFromRegions(obj);
-        obj.RecalculateBoundingRegions();
+        obj.RecalculateBoundingBox();
         AddToRegions(obj);
+    }
+    internal void UpdateRegions(DynamicObject obj, Vector2 deltaP) //update regions based on translation
+    {
+        BoundingRegions oldBounds = obj.BoundingRegions;
+        if (obj.TranslateBoundingBox(deltaP))
+        {
+            RemoveFromRegions(obj, oldBounds);
+            AddToRegions(obj);
+        }
     }
 
     public void AddToRegions(PhysicsObject obj) {
@@ -25,30 +40,48 @@ public class RegionManager
         else if (obj is StaticObject staticObject) RemoveFromRegions(staticObject);
     }
 
-    public List<PhysicsObject> GetPotentialCollisions(DynamicObject obj)
+    public HashSet<PhysicsObject> GetPotentialCollisions(DynamicObject obj)
     {
-        List<PhysicsObject> candidates = new List<PhysicsObject>();
-        for (int i = obj.BoundingRegions.min.x; i <= obj.BoundingRegions.max.x; i++) 
+        using (getMarker.Auto())
         {
-            for (int j = obj.BoundingRegions.min.y; j <= obj.BoundingRegions.max.y; j++) 
+            var candidates = new HashSet<PhysicsObject>();
+
+            foreach (Vector2Int key in obj.BoundingRegions)
             {
-                if (regions.TryGetValue(new Vector2Int(i,j), out HashSet<PhysicsObject> region))
+                if (regions.TryGetValue(key, out HashSet<PhysicsObject> region))
                 {
                     foreach (PhysicsObject other_obj in region)
                     {
-                        if (other_obj != obj && !candidates.Contains(other_obj)) {
-                            candidates.Add(other_obj);
-                        };
+                        if (other_obj != obj && !candidates.Contains(obj)) candidates.Add(other_obj);
+                    }
+                }
+            }
+
+            return candidates;
+        }
+    }
+    public HashSet<DynamicObject> GetPotentialCollisions(StaticObject obj)
+    {
+        var candidates = new HashSet<DynamicObject>();
+
+        foreach (Vector2Int key in obj.Regions) {
+            if (regions.TryGetValue(key, out HashSet<PhysicsObject> region))
+            {
+                foreach (PhysicsObject other_obj in region)
+                {
+                    if (other_obj != obj)
+                    {
+                        if (other_obj is DynamicObject d && !candidates.Contains(d)) candidates.Add(d);
                     }
                 }
             }
         }
-
+        
         return candidates;
     }
 
-    public static (Vector2Int min, Vector2Int max) GetBoundingRegions((Vector2 min, Vector2 max) bounds) { //bounds: bottom-left (min), top-right (max)
-        (Vector2Int min, Vector2Int max) boundingRegions = (new Vector2Int(0,0), new Vector2Int(0,0));
+    public static BoundingRegions GetBoundingRegions((Vector2 min, Vector2 max) bounds) { //bounds: bottom-left (min), top-right (max)
+        BoundingRegions boundingRegions = new BoundingRegions();
 
         boundingRegions.min.x = Mathf.FloorToInt((bounds.min.x - EPSILON) / SIZE);
         boundingRegions.min.y = Mathf.FloorToInt((bounds.min.y - EPSILON) / SIZE);
@@ -59,33 +92,25 @@ public class RegionManager
         return boundingRegions;
     }
 
+    /* PRIVATE */
 
     private void AddToRegions(DynamicObject obj)
     {
-        for (int x = obj.BoundingRegions.min.x; x <= obj.BoundingRegions.max.x; x++)
+        foreach (Vector2Int key in obj.BoundingRegions)
         {
-            for (int y = obj.BoundingRegions.min.y; y <= obj.BoundingRegions.max.y; y++)
+            if (!regions.TryGetValue(key, out HashSet<PhysicsObject> region))
             {
-                Vector2Int key = new Vector2Int(x, y);
-                if (!regions.TryGetValue(key, out HashSet<PhysicsObject> region))
-                {
-                    region = new HashSet<PhysicsObject>();
-                    regions[key] = region;
-                }
-                region.Add(obj);
+                region = new HashSet<PhysicsObject>();
+                regions[key] = region;
             }
+            region.Add(obj);
         }
     }
     private void RemoveFromRegions(DynamicObject obj)
     {
-        for (int x = obj.BoundingRegions.min.x; x <= obj.BoundingRegions.max.x; x++)
-        {
-            for (int y = obj.BoundingRegions.min.y; y <= obj.BoundingRegions.max.y; y++)
-            {
-                Vector2Int key = new Vector2Int(x, y);
-                regions[key].Remove(obj);
-                if (regions[key].Count == 0) regions.Remove(key);
-            }
+        foreach (Vector2Int key in obj.BoundingRegions) {
+            regions[key].Remove(obj);
+            if (regions[key].Count == 0) regions.Remove(key);
         }
     }
 
@@ -109,5 +134,52 @@ public class RegionManager
             regions[key].Remove(obj);
             if (regions[key].Count == 0) regions.Remove(key);
         }
+    }
+    private void RemoveFromRegions(DynamicObject obj, BoundingRegions boundingRegions) 
+    {
+        foreach (Vector2Int key in boundingRegions)
+        {
+            regions[key].Remove(obj); //not safe but its private so whatever
+            if (regions[key].Count == 0) regions.Remove(key);
+        }
+    }
+}
+
+internal class BoundingRegions : IEnumerable<Vector2Int> {
+    public Vector2Int max;
+    public Vector2Int min;
+
+    public BoundingRegions() { 
+        this.min = new Vector2Int(0, 0);
+        this.max = new Vector2Int(-1, -1); //invalid on purpose
+    }
+    public BoundingRegions(Vector2Int min, Vector2Int max) {
+        this.min = min;
+        this.max = max;
+    }
+
+    public bool IsOverlapping(BoundingRegions other) {
+        if (!this.IsValid() || !other.IsValid()) return false;
+        return Vectors2D.IsOverlapping((this.min.x, this.max.x), (other.min.x, other.max.x)) &&
+               Vectors2D.IsOverlapping((this.min.y, this.max.y), (other.min.y, other.max.y));
+    }
+
+    public bool IsValid() {
+        return min.x <= max.x && min.y <= max.y;
+    }
+
+    public IEnumerator<Vector2Int> GetEnumerator()
+    {
+        for (int y = min.y; y <= max.y; y++)
+        {
+            for (int x = min.x; x <= max.x; x++)
+            {
+                yield return new Vector2Int(x, y);
+            }
+        }
+    }
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        return GetEnumerator();
     }
 }
