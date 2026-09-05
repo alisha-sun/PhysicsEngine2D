@@ -1,16 +1,20 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
-using Unity.VisualScripting;
-using UnityEditor.Experimental.GraphView;
 using UnityEngine;
+using Unity.Profiling;
 public interface IPhysicsCollider
 {
     PhysicsObject Owner { get; }
     public (Vector2 min, Vector2 max) GetBoundingBox();
+    internal void PositionUpdate(Vector2 deltaP);
+    internal void FullUpdate();
 }
 public struct Collision
 {
+    static readonly ProfilerMarker resolveMarker = new("Resolve");
+    static readonly ProfilerMarker detectMarker = new("Detect");
+    
     private const float OVERLAP_EPSILON = 1e-5f;
 
     public IPhysicsCollider reference;
@@ -20,26 +24,33 @@ public struct Collision
     public Vector2[] contactPoints;
     public Vector2 normal;
 
-    public static List<Collision> GetCollisions(DynamicObject obj, GameState gameState) {
-        List<PhysicsObject> candidates = gameState.regions.GetPotentialCollisions(obj);
-        List<Collision> collisions = new List<Collision>();
+    public static void DoCollisions(DynamicObject obj, GameState gameState)
+    {
+        var candidates = gameState.regions.GetPotentialCollisions(obj);
+        Vector2 deltaP = Vector2.zero;
+
         foreach (IPhysicsCollider collider in obj.Colliders)
         {
             foreach (PhysicsObject other_obj in candidates)
             {
                 foreach (IPhysicsCollider other_collider in other_obj.Colliders)
                 {
+                    GameState.pairs++;
                     Collision collision = Collision.Check(collider, other_collider);
-                    if (collision.contactPoints != null) collisions.Add(collision);
+                    if (collision.contactPoints != null)
+                    {
+                        using (resolveMarker.Auto())
+                            deltaP += collision.Resolve(obj);
+                        GameState.collisions++;
+                    }
                 }
             }
         }
-        return collisions;
+        PhysicsEngine.instance.gameState.regions.UpdateRegions(obj, deltaP);
     }
-
-    public static void DoCollisions(DynamicObject obj, GameState gameState)
+    public static void DoCollisions(StaticObject obj, GameState gameState)
     {
-        List<PhysicsObject> candidates = gameState.regions.GetPotentialCollisions(obj);
+        var candidates = gameState.regions.GetPotentialCollisions(obj);
         foreach (IPhysicsCollider collider in obj.Colliders)
         {
             foreach (PhysicsObject other_obj in candidates)
@@ -47,7 +58,10 @@ public struct Collision
                 foreach (IPhysicsCollider other_collider in other_obj.Colliders)
                 {
                     Collision collision = Collision.Check(collider, other_collider);
-                    if (collision.contactPoints != null) collision.Resolve();
+                    if (collision.contactPoints != null)
+                    {
+                        collision.Resolve(obj);
+                    }
                 }
             }
         }
@@ -55,49 +69,53 @@ public struct Collision
 
     public static Collision Check(IPhysicsCollider a, IPhysicsCollider b)
     {
-        if (a is PolygonCollider polyA)
-        {
-            if (b is PolygonCollider polyB) return new Collision(polyA, polyB);
-            if (b is CircleCollider circleB) return new Collision(polyA, circleB);
+        using (detectMarker.Auto()) {
+            if (a is PolygonCollider polyA)
+            {
+                if (b is PolygonCollider polyB) return new Collision(polyA, polyB);
+                if (b is CircleCollider circleB) return new Collision(polyA, circleB);
+            }
+            else if (a is CircleCollider circleA)
+            {
+                if (b is PolygonCollider polyB) return new Collision(polyB, circleA);
+                if (b is CircleCollider circleB) return new Collision(circleA, circleB);
+            }
+            return new Collision(float.NaN);
         }
-        else if (a is CircleCollider circleA)
-        {
-            if (b is PolygonCollider polyB) return new Collision(polyB, circleA);
-            if (b is CircleCollider circleB) return new Collision(circleA, circleB);
-        }
-        return new Collision(float.NaN);
     }
 
-    public void Resolve() {
-        if (contactPoints == null || contactPoints.Length == 0) return;
+    public readonly Vector2 Resolve(PhysicsObject obj) {
+        if (contactPoints == null || contactPoints.Length == 0) return Vector2.zero;
 
         float e = Restitution();
-        float[] impulses = new float[contactPoints.Length];
-        Vector2[] points = (Vector2[])contactPoints.Clone();
 
-        if (points.Length == 2) {
-            Edge centerToContact0_reference = new Edge(reference.Owner.Position, points[0]);
-            Edge centerToContact0_incident = new Edge(incident.Owner.Position, points[0]);
-            Edge centerToContact1_reference = new Edge(reference.Owner.Position, points[1]);
-            Edge centerToContact1_incident = new Edge(incident.Owner.Position, points[1]);
+        int contactCount = contactPoints.Length;
+
+        Vector2 point0 = contactPoints[0];
+        float impulse0 = 0;
+        Vector2 point1 = default;
+        float impulse1 = 0;
+
+        if (contactCount == 2) {
+            point1 = contactPoints[1];
 
             float rv_n0 = Vector2.Dot(
-                  incident.Owner.GetVelocityAtPoint(points[0], true) - reference.Owner.GetVelocityAtPoint(points[0], true)
+                  incident.Owner.GetVelocityAtPoint(point0, true) - reference.Owner.GetVelocityAtPoint(point0, true)
                 , normal); //relative velocity along the collision normal at the first contact point
 
             float rv_n1 = Vector2.Dot(
-                  incident.Owner.GetVelocityAtPoint(points[1], true) - reference.Owner.GetVelocityAtPoint(points[1], true)
+                  incident.Owner.GetVelocityAtPoint(point1, true) - reference.Owner.GetVelocityAtPoint(point1, true)
                 , normal); //relative velocity along the collision normal at the second contact point
 
             Vector2 impulseMagnitudes;
-            if (rv_n0 >= 0 && rv_n1 >= 0) return;
-            else if (rv_n0 >= 0)
+            if (rv_n0 > 0 && rv_n1 > 0) return Vector2.zero;
+            else if (rv_n0 > 0)
             {
                 impulseMagnitudes = Vectors2D.SolveSystem(CalculateContactVelocityCoefficient(0, 0), CalculateContactVelocityCoefficient(0, 1),
                                                           CalculateContactVelocityCoefficient(1, 0), CalculateContactVelocityCoefficient(1, 1),
                                                           new Vector2(0, -(1 + e) * rv_n1));
             }
-            else if (rv_n1 >= 0)
+            else if (rv_n1 > 0)
             {
                 impulseMagnitudes = Vectors2D.SolveSystem(CalculateContactVelocityCoefficient(0, 0), CalculateContactVelocityCoefficient(0, 1),
                                                           CalculateContactVelocityCoefficient(1, 0), CalculateContactVelocityCoefficient(1, 1),
@@ -115,31 +133,33 @@ public struct Collision
                 Debug2.Draw(this, Time.fixedDeltaTime);
                 Debug.Log(this);
                 Debug.LogWarning("Unable to solve for impulse in double contact point collision between " + reference.Owner.Instance.name + " and " + incident.Owner.Instance.name);
-                points = new Vector2[] { (points[0] + points[1]) / 2 };
+                point0 = (point0 + point1)/2;
+                contactCount = 1;
             }
             else if (impulseMagnitudes.x < 0) {
-                points = new Vector2[] { points[1] };
+                point0 = point1;
+                contactCount = 1;
             }
             else if (impulseMagnitudes.y < 0)
             {
-                points = new Vector2[] { points[0] };
+                contactCount = 1;
             }
             else
             {
-                impulses[0] = impulseMagnitudes.x;
-                impulses[1] = impulseMagnitudes.y;
+                impulse0 = impulseMagnitudes.x;
+                impulse1 = impulseMagnitudes.y;
             }
         }
 
-        if (points.Length == 1) {
-            Edge centerToContact_reference = new Edge(reference.Owner.Position, points[0]);
-            Edge centerToContact_incident = new Edge(incident.Owner.Position, points[0]);
+        if (contactCount == 1) {
+            Edge centerToContact_reference = new Edge(reference.Owner.Position, point0);
+            Edge centerToContact_incident = new Edge(incident.Owner.Position, point0);
 
             float rv_n = Vector2.Dot(
-                  incident.Owner.GetVelocityAtPoint(points[0], true) - reference.Owner.GetVelocityAtPoint(points[0], true)
+                  incident.Owner.GetVelocityAtPoint(point0, true) - reference.Owner.GetVelocityAtPoint(point0, true)
                 , normal); //relative velocity along the collision normal (negative if the space between the two objects is decreasing)
 
-            if (rv_n >= 0) return;
+            if (rv_n > 0) return Vector2.zero;
 
             float j = (-(1 + e) * rv_n) /
                 ((1 / reference.Owner.Mass) + (1 / incident.Owner.Mass) +
@@ -152,35 +172,62 @@ public struct Collision
                 Debug.Log(this);
                 Debug.LogError("Unable to solve for impulse in single contact point collision between " + reference.Owner.Instance.name + " and " + incident.Owner.Instance.name);
             }
-            else impulses[0] = j;
+            else impulse0 = j;
         }
 
+
+        Vector2 deltaP_obj = Vector2.zero;
         float ratio = PercentMass_Reference();
         if (reference.Owner is DynamicObject d1)
         {
-            for (int i = 0; i < points.Length; i++)
+            d1.ApplyImpulse(-impulse0 * normal, d1.WorldToLocal_Point(point0));
+            if (contactCount == 2) d1.ApplyImpulse(-impulse1 * normal, d1.WorldToLocal_Point(point1));
+
+            Vector2 deltaP = -penetration * (1 - ratio) * normal;
+
+            d1.SetPosition_Internal(d1.Position + deltaP);
+
+            if (d1 == obj)
             {
-                d1.ApplyImpulse(-impulses[i] * normal, d1.WorldToLocal_Point(points[i]));
+                deltaP_obj = deltaP;
+                d1.OnTranslation(deltaP, false);
             }
-            d1.SetPosition(d1.Position - penetration * normal * (1 - ratio));
+            else {
+                d1.OnTranslation(deltaP, true);
+            }
         }
 
-        if (incident.Owner is DynamicObject d2)
+            if (incident.Owner is DynamicObject d2)
         {
-            for (int i = 0; i < points.Length; i++)
+            d2.ApplyImpulse(impulse0 * normal, d2.WorldToLocal_Point(point0));
+            if (contactCount == 2) d2.ApplyImpulse(impulse1 * normal, d2.WorldToLocal_Point(point1));
+
+            Vector2 deltaP = penetration * ratio * normal;
+
+            d2.SetPosition_Internal(d2.Position + deltaP);
+
+            if (d2 == obj)
             {
-                d2.ApplyImpulse(impulses[i] * normal, d2.WorldToLocal_Point(points[i]));
+                deltaP_obj = deltaP;
+                d2.OnTranslation(deltaP, false);
             }
-            d2.SetPosition(d2.Position + penetration * normal * ratio);
+            else
+            {
+                d2.OnTranslation(deltaP, true);
+            }
         }
 
-        for (int i = 0; i < points.Length; i++) {
-            Debug2.DrawX(points[i], Color.red, Time.fixedDeltaTime);
-            Debug2.DrawArrow(points[i], normal * impulses[i], Color.green, Time.fixedDeltaTime);
-        }
+        /*Debug2.DrawX(point0, Color.red, Time.fixedDeltaTime);
+        Debug2.DrawArrow(point0, normal * impulse0, Color.green, Time.fixedDeltaTime);
+        if (contactCount == 2) {
+            Debug2.DrawX(point1, Color.red, Time.fixedDeltaTime);
+            Debug2.DrawArrow(point1, normal * impulse1, Color.green, Time.fixedDeltaTime);
+        }*/
+
+        return deltaP_obj;
     }
 
-    private float PercentMass_Reference()
+    private readonly float PercentMass_Reference()
     {
         if (reference.Owner.Mass == float.PositiveInfinity)
         {
@@ -191,12 +238,12 @@ public struct Collision
         else return (reference.Owner.Mass / (reference.Owner.Mass + incident.Owner.Mass));
     }
 
-    private float Restitution()
+    private readonly float Restitution()
     {
         return 0; //consider physics materials later
     }
 
-    private float CalculateContactVelocityCoefficient(int v_index, int j_index) { //i worked through the algebra myself :/
+    private readonly float CalculateContactVelocityCoefficient(int v_index, int j_index) { //i worked through the algebra myself :/
         if (v_index > 1 || j_index > 1 || v_index < 0 || j_index < 0) return float.NaN;
         Edge a_j = new Edge(incident.Owner.Position, contactPoints[j_index]);
         Edge a_v = new Edge(incident.Owner.Position, contactPoints[v_index]);
@@ -219,8 +266,8 @@ public struct Collision
         normal = new Vector2(float.NaN, float.NaN);
         contactPoints = null;
 
-        Vector2[] pathA = polyA.GetPath();
-        Vector2[] pathB = polyB.GetPath();
+        IReadOnlyList<Vector2> pathA = polyA.GetPath();
+        IReadOnlyList<Vector2> pathB = polyB.GetPath();
 
         Edge referenceEdge = FindMinimumOverlapEdge(polyA, pathA, polyB, pathB);
 
@@ -240,14 +287,11 @@ public struct Collision
     private Edge FindMinimumOverlapEdge(PolygonCollider poly, IReadOnlyList<Vector2> path, PolygonCollider other_poly, IReadOnlyList<Vector2> other_path) {
         Edge referenceEdge = new Edge(float.NaN);
 
-        Vector2 prevEdgeTangent = path[0] - path[path.Count - 1];
         for (int i = 0; i < path.Count; i++) 
         {
-            Edge edge = new Edge(path[i], path[(i + 1) % path.Count]); //looping through all the edges. May be clockwise or counterclockwise
+            Edge edge = new Edge(path[i], path[(i + 1) % path.Count]); //looping through all the edges (CW)
 
-            if (Vector2.Dot(edge.normal, prevEdgeTangent) < 0) edge.FlipNormal(); //force the normal vector to face outward, because this is required for finding the incident edge later
-
-               //Debug2.DrawArrow(edge.start + edge.tangent*.5f, edge.normal, Color.magenta, Time.fixedDeltaTime);
+            //Debug2.DrawArrow(edge.start + edge.tangent*.5f, edge.normal, Color.magenta, Time.fixedDeltaTime);
 
             float p = FindProjectionOverlap(path, other_path, edge);
 
@@ -266,29 +310,23 @@ public struct Collision
                 referenceEdge = edge;
                 //Debug2.Draw(edge,Color.gray,Time.fixedDeltaTime);
             }
-
-            prevEdgeTangent = edge.tangent;
         }
         return referenceEdge;
     }
-    private Edge FindIncidentEdge(IReadOnlyList<Vector2> path) {
+    private readonly Edge FindIncidentEdge(IReadOnlyList<Vector2> path) {
         Edge incidentEdge = new Edge(new Vector2(float.NaN, float.NaN), new Vector2(float.NaN, float.NaN));
         float minDot = float.PositiveInfinity;
-        Vector2 prevEdgeTangent = path[0] - path[path.Count - 1];
+
         for (int i = 0; i < path.Count; i++)
         {
-            Edge edge = new Edge(path[i], path[(i + 1)%path.Count]); //looping through all the edges. May be clockwise or counterclockwise
+            Vector2 tangent = path[(i + 1) % path.Count] - path[i]; //looping through all the edges (CW)
 
-            if (Vector2.Dot(edge.normal, prevEdgeTangent) < 0) edge.FlipNormal(); //force the normal vector to face outward, because this wont work reliably otherwise
-
-            float dot = Vector2.Dot(edge.normal, normal);
+            float dot = Vectors2D.Cross(tangent.normalized, normal); //same as dot product between the edge normal and the collision normal, just less computation
             if (dot < minDot)
             {
                 minDot = dot;
                 incidentEdge = new Edge(path[i], path[(i + 1) % path.Count]);
             }
-
-            prevEdgeTangent = edge.tangent;
         }
         return incidentEdge;
     }
@@ -306,22 +344,15 @@ public struct Collision
 
         return l.ToArray();
     }
-    private static Edge ClipIncidentEdge(Edge incidentEdge, Edge referenceEdge) {
-        (Vector2 start, Vector2 end) range;
-        range.start = Vectors2D.SolveSystem(referenceEdge.start, referenceEdge.normal, incidentEdge.start, incidentEdge.tangent);
-        range.end = Vectors2D.SolveSystem(referenceEdge.end, referenceEdge.normal, incidentEdge.start, incidentEdge.tangent);
+    private static Edge ClipIncidentEdge(Edge incidentEdge, Edge referenceEdge) { //the dot product between these two should be negative
+        Vector2 start = Vectors2D.SolveSystem(referenceEdge.end, referenceEdge.normal, incidentEdge.start, incidentEdge.tangent); //this ordering relies on the dot product being negative
+        Vector2 end = Vectors2D.SolveSystem(referenceEdge.start, referenceEdge.normal, incidentEdge.start, incidentEdge.tangent);
 
-        if (Vector2.Dot(range.end - range.start, incidentEdge.tangent) < 0)
-        {
-            Vector2 temp = range.start; 
-            range.start = range.end;
-            range.end = temp;
-        }
+        Edge clipped = new Edge(
+            Vectors2D.MaxByDot(incidentEdge.tangent, start, incidentEdge.start),
+            Vectors2D.MinByDot(incidentEdge.tangent, end, incidentEdge.end)
+        );
 
-        Vector2 start = Vectors2D.MaxByDot(incidentEdge.tangent, range.start, incidentEdge.start);
-        Vector2 end = Vectors2D.MinByDot(incidentEdge.tangent, range.end, incidentEdge.end);
-
-        Edge clipped = new Edge(start,end);
         if (Vector2.Dot(clipped.tangent, incidentEdge.tangent) > 0) return clipped;
         else return new Edge(float.NaN); //shouldnt happen
     }
@@ -336,7 +367,7 @@ public struct Collision
 
         IReadOnlyList<Vector2> path = polyA.GetPath();
 
-        Edge referenceEdge = FindMinimumOverlapEdge(path, circleB.Center, circleB.Radius);
+        FindMinimumOverlapEdge(path, circleB.Center, circleB.Radius);
         if (float.IsNaN(penetration)) return; //found separating axis
 
         Vector2 p = CheckClosestVertex(path, polyA, circleB);
@@ -344,18 +375,13 @@ public struct Collision
 
         if (reference == circleB) contactPoints = new Vector2[] { p };
         else contactPoints = new Vector2[] { circleB.Center - circleB.Radius*normal };
-        //Debug2.DrawX(contactPoints[0], Color.cyan, Time.fixedDeltaTime, .3f);
+        //Debug2.DrawX(contactpoint0, Color.cyan, Time.fixedDeltaTime, .3f);
     }
-    private Edge FindMinimumOverlapEdge(IReadOnlyList<Vector2> path, Vector2 center, float radius)
+    private void FindMinimumOverlapEdge(IReadOnlyList<Vector2> path, Vector2 center, float radius)
     {
-        Edge referenceEdge = new Edge(float.NaN);
-
-        Vector2 prevEdgeTangent = path[0] - path[path.Count - 1];
         for (int i = 0; i < path.Count; i++)
         {
-            Edge edge = new Edge(path[i], path[(i + 1) % path.Count]); //looping through all the edges. May be clockwise or counterclockwise
-
-            if (Vector2.Dot(edge.normal, prevEdgeTangent) < 0) edge.FlipNormal(); //force the normal vector to face outward, because this is required for finding the incident edge later
+            Edge edge = new Edge(path[i], path[(i + 1) % path.Count]); //looping through all the edges (CCW)
 
             //Debug2.DrawArrow(edge.start + edge.tangent * .5f, edge.normal, Color.magenta, Time.fixedDeltaTime);
 
@@ -364,28 +390,23 @@ public struct Collision
             if (float.IsNaN(p)) { //found separating axis
                 normal = new Vector2(float.NaN, float.NaN);
                 penetration = float.NaN; // <---
-                return new Edge(float.NaN);
             }
             else if (p < penetration) {
                 normal = edge.normal;
                 penetration = p;
-
-                referenceEdge = edge;
                 //Debug2.Draw(edge, Color.gray, Time.fixedDeltaTime);
             }
-
-            prevEdgeTangent = edge.tangent;
         }
-        return referenceEdge;
     }
     private Vector2 CheckClosestVertex(IReadOnlyList<Vector2> path, PolygonCollider polyA, CircleCollider circleB)
     {
-        Vector2 closest = FindClosestVertex(path, circleB.Center, circleB.Radius);
+        Vector2 closest = Vectors2D.FindClosestPoint(path, circleB.Center);
         Edge centerToClosest = new Edge(circleB.Center, closest);
         float p = -Vector2.Dot(closest - (circleB.Center + centerToClosest.tangent.normalized * circleB.Radius), // vector from circle edge to closest vertex
                                centerToClosest.tangent.normalized);                                              // direction from center to closest vertex
 
-        //Debug.DrawLine(closest, closest - centerToClosest.tangent.normalized * p, Color.green, Time.fixedDeltaTime);
+        //
+        //Line(closest, closest + centerToClosest.tangent.normalized * p, Color.yellow, Time.fixedDeltaTime);
 
         if (p < 0) //vertex is not touching the circle
         {
@@ -423,8 +444,8 @@ public struct Collision
         contactPoints = new Vector2[] { (circleA.Center + normal*circleA.Radius + circleB.Center - normal * circleB.Radius)/2 };
 
         //Debug2.DrawArrow(circleA.Center, normal, Color.magenta, Time.fixedDeltaTime);
-        //Debug.DrawLine(contactPoints[0], contactPoints[0] - normal*penetration, Color.yellow, Time.fixedDeltaTime);
-        //Debug2.DrawX(contactPoints[0], Color.blue, Time.fixedDeltaTime, .2f);
+        //Debug.DrawLine(contactpoint0, contactpoint0 - normal*penetration, Color.yellow, Time.fixedDeltaTime);
+        //Debug2.DrawX(contactpoint0, Color.blue, Time.fixedDeltaTime, .2f);
     }
 
 
@@ -476,41 +497,21 @@ public struct Collision
     }
 
     private static float FindOverlap((float min, float max) proj, (float min, float max) other_proj, Edge edge) { //the projections are supposed to be along edge.normal; proj is a polygon and edge belongs to proj; other_proj may be a circle or a polygon
-        float overlap = float.NaN;
+        float overlap;
         float extreme = Vector2.Dot(edge.normal, edge.start);
 
         if (Mathf.Abs(extreme - proj.min) < OVERLAP_EPSILON) overlap = other_proj.max - proj.min; //if the reference edge is the reference polygon's min, move the other shape's max to the reference polygon's min
         else if (Mathf.Abs(extreme - proj.min) > OVERLAP_EPSILON) overlap = proj.max - other_proj.min; //otherwise the reference edge is the reference polygon's max, so we must move the other shape's min to the reference polygon's max
-        else {
-            Debug.LogError("Not a convex polygon.");
-            throw new Exception("Not a convex polygon.");
-        }
+        else throw new Exception("Not a convex polygon.");
 
         if (overlap < 0) return float.NaN;
         else return overlap;
     }
 
-    private Vector2 FindClosestVertex(IReadOnlyList<Vector2> path, Vector2 center, float radius)
-    {
-        Vector2 closest = path[0];
-        float minDistSq = (path[0] - center).sqrMagnitude;
-        foreach (var vertex in path)
-        {
-            float distSq = (vertex - center).sqrMagnitude;
-
-            if (distSq < minDistSq)
-            {
-                minDistSq = distSq;
-                closest = vertex;
-            }
-        }
-        return closest;
-    }
-
 
     /* DEBUGGING */
 
-    public override string ToString()
+    public readonly override string ToString()
     {
         String s =
             "Reference: " + reference.Owner.Instance.name +

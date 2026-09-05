@@ -6,7 +6,7 @@ public class PhysicsEngine : MonoBehaviour
 {
     public Transform simulationCenter;
     public float simulationDistance = 40f;
-    public float refreshRate = 100f;
+    public float refreshRate = 50f;
     public float regionSize = 4f;
 
     public float gravity = -9.8f; // m/s^2

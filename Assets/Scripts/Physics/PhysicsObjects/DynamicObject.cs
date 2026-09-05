@@ -3,17 +3,13 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
-using UnityEngine.Assertions;
-using UnityEngine.UIElements;
-using static UnityEditor.PlayerSettings;
-using static UnityEngine.Rendering.DebugUI.Table;
-using static UnityEngine.Rendering.VolumeComponent;
 
 public class DynamicObject : PhysicsObject
 {
     private static int nextId = 0;
-    public int NetworkId { get; }
-    private GameObject _instance;                               public override GameObject Instance => _instance;
+
+    public readonly int NetworkId;
+    private readonly GameObject _instance;                      public override GameObject Instance => _instance;
     private List<IPhysicsCollider> _colliders;                  public override IReadOnlyList<IPhysicsCollider> Colliders => _colliders;
     private Renderer[] _renderers; //only used to calculate bounds
 
@@ -40,7 +36,9 @@ public class DynamicObject : PhysicsObject
     private Vector2 _anchor;                                    public Vector2 Anchor => _anchor;                           // in local coordinates
     private Vector2 _anchorVelocity;
 
-    private (Vector2Int min, Vector2Int max) _boundingRegions;  public (Vector2Int min, Vector2Int max) BoundingRegions => _boundingRegions;
+    private (Vector2 min, Vector2 max) _boundingBox;
+    private BoundingRegions _boundingRegions;                   internal BoundingRegions BoundingRegions => _boundingRegions;
+
 
     public DynamicObject(GameObject instance, Vector2 velocity, float maxVelocityX, float maxVelocityY, float drag, float mass, float angularVelocity, float maxAngularVelocity, float angularDrag, float inertia, float gravityScale, float terminalVelocity, bool freezeX, bool freezeY, bool freezeRotation, Vector2 anchor) {
         NetworkId = nextId++;
@@ -70,42 +68,58 @@ public class DynamicObject : PhysicsObject
         SetFreezeY(freezeY);
         SetFreezeRotation(freezeRotation);
         SetAnchor(anchor);
+
+        RecalculateBoundingBox();
     }
 
 
     /* BASIC SETTERS/GETTERS */
 
-    public void AddPosition(Vector2 deltaP, bool overrideMaxX = false, bool overrideMaxY = false, bool overrideFreezeX = false, bool overrideFreezeY = false)
+    public void AddPosition(Vector2 deltaP, bool overrideFreezeX = false, bool overrideFreezeY = false)
     {
-        SetPosition(_position + deltaP, overrideFreezeX, overrideFreezeY);
+        SetPosition_Internal(_position + deltaP, overrideFreezeX, overrideFreezeY);
+        OnTransformation();
     }
-    public void SetPosition(Vector2 pos, bool overrideFreezeX = false, bool overrideFreezeY = false, bool updateRegions = true) {
+    public void SetPosition(Vector2 pos, bool overrideFreezeX = false, bool overrideFreezeY = false) {
+        SetPosition_Internal(pos, overrideFreezeX, overrideFreezeY);
+        OnTransformation();
+    }
+    internal void SetPosition_Internal(Vector2 pos, bool overrideFreezeX = false, bool overrideFreezeY = false)
+    {
         if (!Vectors2D.IsFinite(pos)) throw new ArgumentOutOfRangeException(nameof(pos), pos, "Position must be finite");
 
         if (overrideFreezeX || !_freezeX) _position.x = pos.x;
         if (overrideFreezeY || !_freezeY) _position.y = pos.y;
-        if (updateRegions) PhysicsEngine.instance.gameState.regions.UpdateRegions(this);
     }
 
     public void AddRotation(float deltaR, bool overrideFreeze = false)
     {
-        SetRotation(_rotation + deltaR, overrideFreeze);
+        SetRotation_Internal(_rotation + deltaR, overrideFreeze);
+        OnTransformation();
     }
-    public void SetRotation(float rot, bool overrideFreeze = false, bool updateRegions = true)
+    public void SetRotation(float rot, bool overrideFreeze = false)
+    {
+        SetRotation_Internal(rot, overrideFreeze);
+        OnTransformation();
+    }
+    internal void SetRotation_Internal(float rot, bool overrideFreeze = false)
     {
         if (!float.IsFinite(rot)) throw new ArgumentOutOfRangeException(nameof(rot), rot, "Rotation must be finite");
 
         if (overrideFreeze || !_freezeRotation) _rotation = Mathf.Repeat(rot, 2f * Mathf.PI);
-        if (updateRegions) PhysicsEngine.instance.gameState.regions.UpdateRegions(this);
     }
 
-    public void SetScale(Vector2 scale, bool updateRegions = true)
+    public void SetScale(Vector2 scale)
+    {
+        SetScale_Internal(scale);
+        OnTransformation();
+    }
+    internal void SetScale_Internal(Vector2 scale)
     {
         if (!Vectors2D.IsFinite(scale)) throw new ArgumentOutOfRangeException(nameof(scale), scale, "Scale must be finite");
 
         _scale.x = scale.x;
         _scale.y = scale.y;
-        if (updateRegions) PhysicsEngine.instance.gameState.regions.UpdateRegions(this);
     }
 
 
@@ -237,11 +251,12 @@ public class DynamicObject : PhysicsObject
         _anchor.x = float.NaN;
         _anchor.y = float.NaN;
     }
-    public void SetPosition_Anchor(Vector2 worldPos, bool overrideFreezeX = false, bool overrideFreezeY = false, bool updateRegions = true)
+    public void SetPosition_Anchor(Vector2 worldPos, bool overrideFreezeX = false, bool overrideFreezeY = false)
     {
         if (!Vectors2D.IsFinite(worldPos)) throw new ArgumentOutOfRangeException(nameof(worldPos), worldPos, "Anchor position must be finite");
-        else if (float.IsNaN(_anchor.x)) SetPosition(worldPos, overrideFreezeX, overrideFreezeY, updateRegions);
-        else SetPosition(_position + worldPos - LocalToWorld_Point(_anchor), overrideFreezeX, overrideFreezeY, updateRegions);
+        else if (float.IsNaN(_anchor.x)) SetPosition_Internal(worldPos, overrideFreezeX, overrideFreezeY);
+        else SetPosition_Internal(_position + worldPos - LocalToWorld_Point(_anchor), overrideFreezeX, overrideFreezeY);
+        OnTransformation();
     }
     public void SetVelocity_Anchor(Vector2 v) {
         if (!Vectors2D.IsFinite(v)) throw new ArgumentOutOfRangeException(nameof(v), v, "Anchor velocity must be finite");
@@ -252,7 +267,7 @@ public class DynamicObject : PhysicsObject
 
     /* PHYSICS METHODS */
 
-    public void ApplyGravity(float time) {
+    internal void ApplyGravity(float time) {
         Debug.Assert(float.IsFinite(PhysicsEngine.instance.gravity));
         if (!float.IsFinite(time)) throw new ArgumentOutOfRangeException(nameof(time), time, "Time must be finite");
         if (time < 0) throw new ArgumentOutOfRangeException(nameof(time), time, "Time must be non-negative");
@@ -260,7 +275,7 @@ public class DynamicObject : PhysicsObject
         if (_velocity.y > -_terminalVelocity) SetVelocityY(Mathf.Max(_velocity.y + PhysicsEngine.instance.gravity * _gravityScale * time, -_terminalVelocity));
     }
 
-    public void ApplyDrag(float time) {
+    internal void ApplyDrag(float time) {
         if (!float.IsFinite(time)) throw new ArgumentOutOfRangeException(nameof(time), time, "Time must be finite");
         if (time < 0) throw new ArgumentOutOfRangeException(nameof(time), time, "Time must be non-negative");
 
@@ -274,7 +289,7 @@ public class DynamicObject : PhysicsObject
         else _velocity += dragForce / _mass * time;
     }
 
-    public void ApplyAngularDrag(float time) {
+    internal void ApplyAngularDrag(float time) {
         if (!float.IsFinite(time)) throw new ArgumentOutOfRangeException(nameof(time), time, "Time must be finite");
         if (time < 0) throw new ArgumentOutOfRangeException(nameof(time), time, "Time must be non-negative");
 
@@ -284,9 +299,10 @@ public class DynamicObject : PhysicsObject
         else AddAngularVelocity(angularDrag * time);
     }
 
-    public void EnforceAnchor() {
+    internal void EnforceAnchor() {
         if (float.IsNaN(_anchor.x)) return;
         Vector2 r = LocalToWorld_Point(_anchor) - _position;
+
         Vector2 v = -_velocity + new Vector2(_angularVelocity*r.y, -_angularVelocity*r.x) + _anchorVelocity;
 
         float a = 1/_mass + r.y*r.y / _inertia;
@@ -295,7 +311,11 @@ public class DynamicObject : PhysicsObject
 
         Vector2 j = Vectors2D.SolveSystem(a, b, b, d, v);
 
-        ApplyImpulse(j, _anchor, true, true, true);
+        if (!Vectors2D.IsFinite(j)) { //can happen if mass is very high and the anchor is near the center of mass
+            Debug.LogWarning("Unable to solve for impulse to enforce anchor for " + _instance.name);
+            SetVelocity(_anchorVelocity);
+        }
+        else ApplyImpulse(j, _anchor, true, true, true);
     }
 
     public void ApplyForce(Vector2 force, float time, Vector2 applicationPoint_local, bool overrideMaxX = false, bool overrideMaxY = false, bool overrideMaxAngularVelocity = false, bool overrideFreezeX = false, bool overrideFreezeY = false, bool overrideFreezeRotation = false)
@@ -328,9 +348,18 @@ public class DynamicObject : PhysicsObject
 
     /* OTHER */
 
-    public void RecalculateBoundingRegions() {
-        Vector2 min = new Vector2(float.PositiveInfinity,float.PositiveInfinity);
-        Vector2 max = new Vector2(float.NegativeInfinity,float.NegativeInfinity);
+    internal void OnTransformation() {
+        foreach (IPhysicsCollider collider in _colliders)
+        {
+            collider.FullUpdate();
+        }
+
+        PhysicsEngine.instance.gameState.regions.UpdateRegions(this);
+    }
+    internal void RecalculateBoundingBox()
+    {
+        Vector2 min = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
+        Vector2 max = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
 
         foreach (Renderer renderer in _renderers)
         {
@@ -351,7 +380,32 @@ public class DynamicObject : PhysicsObject
             max.y = Mathf.Max(max.y, boundingBox.max.y);
         }
 
-        _boundingRegions = RegionManager.GetBoundingRegions((min, max));
+        _boundingBox = (min, max);
+        _boundingRegions = RegionManager.GetBoundingRegions(_boundingBox);
+    }
+
+    internal void OnTranslation(Vector2 deltaP, bool updateRegions, bool overrideFreezeX = false, bool overrideFreezeY = false) {
+        if (_freezeX && !overrideFreezeX) deltaP.x = 0;
+        if (_freezeY && !overrideFreezeY) deltaP.y = 0;
+
+        foreach (IPhysicsCollider collider in _colliders)
+        {
+            collider.PositionUpdate(deltaP);
+        }
+
+        if (updateRegions) PhysicsEngine.instance.gameState.regions.UpdateRegions(this, deltaP);
+    }
+    internal bool TranslateBoundingBox(Vector2 deltaP)
+    {
+        _boundingBox.min += deltaP;
+        _boundingBox.max += deltaP;
+
+        BoundingRegions newRegions = RegionManager.GetBoundingRegions(_boundingBox);
+        if (newRegions.max != _boundingRegions.max || newRegions.min != _boundingRegions.min) {
+            _boundingRegions = newRegions;
+            return true;
+        }
+        return false;
     }
 
     public void ApplyTransform() {

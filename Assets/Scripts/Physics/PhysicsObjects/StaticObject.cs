@@ -5,7 +5,7 @@ using UnityEngine;
 
 public class StaticObject : PhysicsObject //should never need to be sent over the network
 {
-    private GameObject _instance;                               public override GameObject Instance => _instance;
+    private readonly GameObject _instance;                      public override GameObject Instance => _instance;
     private IPhysicsCollider[] _colliders;                      public override IReadOnlyList<IPhysicsCollider> Colliders => _colliders;
 
     private Vector2 _position;                                  public override Vector2 Position => _position;
@@ -31,7 +31,7 @@ public class StaticObject : PhysicsObject //should never need to be sent over th
         _regions = GetRegions();
     }
 
-    public Vector2Int[] GetRegions() { //temporary; will calculate exact regions later
+    private Vector2Int[] GetRegions() { //temporary; will calculate exact regions later
         Vector2 min = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
         Vector2 max = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
 
@@ -54,15 +54,12 @@ public class StaticObject : PhysicsObject //should never need to be sent over th
             max.y = Mathf.Max(max.y, boundingBox.max.y);
         }
 
-        (Vector2Int min, Vector2Int max) boundingRegions = RegionManager.GetBoundingRegions((min, max));
+        BoundingRegions boundingRegions = RegionManager.GetBoundingRegions((min, max));
 
         Vector2Int[] arr = new Vector2Int[(boundingRegions.max.y-boundingRegions.min.y+1) * (boundingRegions.max.x-boundingRegions.min.x+1)];
         int i = 0;
-        for (int x = boundingRegions.min.x; x <= boundingRegions.max.x; x++) {
-            for (int y = boundingRegions.min.y; y <= boundingRegions.max.y; y++)
-            {
-                arr[i++] = new Vector2Int(x,y);
-            }
+        foreach (Vector2Int region in boundingRegions) {
+            arr[i++] = region;
         }
 
         return arr;
