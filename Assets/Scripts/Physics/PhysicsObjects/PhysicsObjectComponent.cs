@@ -113,6 +113,8 @@ public abstract class PhysicsObject
     public abstract float AngularVelocity { get; }
     public abstract float Inertia { get; }
 
+    internal abstract IEnumerable<Vector2Int> Regions { get; }
+
     public Vector2 LocalToWorld_Point(Vector2 point)
     {
         Vector2 scaled = Vector2.Scale(point, Scale);

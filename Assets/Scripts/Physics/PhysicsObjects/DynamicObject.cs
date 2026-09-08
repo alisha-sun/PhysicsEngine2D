@@ -37,7 +37,7 @@ public class DynamicObject : PhysicsObject
     private Vector2 _anchorVelocity;
 
     private (Vector2 min, Vector2 max) _boundingBox;
-    private BoundingRegions _boundingRegions;                   internal BoundingRegions BoundingRegions => _boundingRegions;
+    private BoundingRegions _boundingRegions;                   internal override IEnumerable<Vector2Int> Regions => _boundingRegions;
 
 
     public DynamicObject(GameObject instance, Vector2 velocity, float maxVelocityX, float maxVelocityY, float drag, float mass, float angularVelocity, float maxAngularVelocity, float angularDrag, float inertia, float gravityScale, float terminalVelocity, bool freezeX, bool freezeY, bool freezeRotation, Vector2 anchor) {
@@ -356,6 +356,19 @@ public class DynamicObject : PhysicsObject
 
         PhysicsEngine.instance.gameState.regions.UpdateRegions(this);
     }
+
+    internal void OnTranslation(Vector2 deltaP, bool updateRegions, bool overrideFreezeX = false, bool overrideFreezeY = false) {
+        if (_freezeX && !overrideFreezeX) deltaP.x = 0;
+        if (_freezeY && !overrideFreezeY) deltaP.y = 0;
+
+        foreach (IPhysicsCollider collider in _colliders)
+        {
+            collider.PositionUpdate(deltaP);
+        }
+
+        if (updateRegions) PhysicsEngine.instance.gameState.regions.UpdateRegions(this, deltaP);
+    }
+
     internal void RecalculateBoundingBox()
     {
         Vector2 min = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
@@ -372,7 +385,7 @@ public class DynamicObject : PhysicsObject
 
         foreach (IPhysicsCollider collider in _colliders)
         {
-            (Vector2 min, Vector2 max) boundingBox = collider.GetBoundingBox();
+            (Vector2 min, Vector2 max) boundingBox = collider.BoundingBox;
             min.x = Mathf.Min(min.x, boundingBox.min.x);
             min.y = Mathf.Min(min.y, boundingBox.min.y);
 
@@ -384,17 +397,6 @@ public class DynamicObject : PhysicsObject
         _boundingRegions = RegionManager.GetBoundingRegions(_boundingBox);
     }
 
-    internal void OnTranslation(Vector2 deltaP, bool updateRegions, bool overrideFreezeX = false, bool overrideFreezeY = false) {
-        if (_freezeX && !overrideFreezeX) deltaP.x = 0;
-        if (_freezeY && !overrideFreezeY) deltaP.y = 0;
-
-        foreach (IPhysicsCollider collider in _colliders)
-        {
-            collider.PositionUpdate(deltaP);
-        }
-
-        if (updateRegions) PhysicsEngine.instance.gameState.regions.UpdateRegions(this, deltaP);
-    }
     internal bool TranslateBoundingBox(Vector2 deltaP)
     {
         _boundingBox.min += deltaP;

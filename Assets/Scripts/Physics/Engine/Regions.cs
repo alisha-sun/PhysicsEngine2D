@@ -11,10 +11,15 @@ internal class RegionManager
     public static float SIZE;
     private const float EPSILON = 0.000001f;
 
-    internal Dictionary<Vector2Int, HashSet<PhysicsObject>> regions = new Dictionary<Vector2Int, HashSet<PhysicsObject>>();
+    private Dictionary<Vector2Int, HashSet<PhysicsObject>> regions = new Dictionary<Vector2Int, HashSet<PhysicsObject>>();
 
     /* PUBLIC INTERFACE */
 
+    public IReadOnlyCollection<PhysicsObject> TryGetValue(Vector2Int key) {
+        regions.TryGetValue(key, out HashSet<PhysicsObject> region);
+        return region;
+    }
+    
     public void UpdateRegions(DynamicObject obj) { //update regions based on new bounding box
         RemoveFromRegions(obj);
         obj.RecalculateBoundingBox();
@@ -22,7 +27,7 @@ internal class RegionManager
     }
     internal void UpdateRegions(DynamicObject obj, Vector2 deltaP) //update regions based on translation
     {
-        BoundingRegions oldBounds = obj.BoundingRegions;
+        IEnumerable<Vector2Int> oldBounds = obj.Regions;
         if (obj.TranslateBoundingBox(deltaP))
         {
             RemoveFromRegions(obj, oldBounds);
@@ -46,7 +51,7 @@ internal class RegionManager
         {
             var candidates = new HashSet<PhysicsObject>();
 
-            foreach (Vector2Int key in obj.BoundingRegions)
+            foreach (Vector2Int key in obj.Regions)
             {
                 if (regions.TryGetValue(key, out HashSet<PhysicsObject> region))
                 {
@@ -96,7 +101,7 @@ internal class RegionManager
 
     private void AddToRegions(DynamicObject obj)
     {
-        foreach (Vector2Int key in obj.BoundingRegions)
+        foreach (Vector2Int key in obj.Regions)
         {
             if (!regions.TryGetValue(key, out HashSet<PhysicsObject> region))
             {
@@ -108,7 +113,7 @@ internal class RegionManager
     }
     private void RemoveFromRegions(DynamicObject obj)
     {
-        foreach (Vector2Int key in obj.BoundingRegions) {
+        foreach (Vector2Int key in obj.Regions) {
             regions[key].Remove(obj);
             if (regions[key].Count == 0) regions.Remove(key);
         }
@@ -135,9 +140,9 @@ internal class RegionManager
             if (regions[key].Count == 0) regions.Remove(key);
         }
     }
-    private void RemoveFromRegions(DynamicObject obj, BoundingRegions boundingRegions) 
+    private void RemoveFromRegions(DynamicObject obj, IEnumerable<Vector2Int> targetRegions) 
     {
-        foreach (Vector2Int key in boundingRegions)
+        foreach (Vector2Int key in targetRegions)
         {
             regions[key].Remove(obj); //not safe but its private so whatever
             if (regions[key].Count == 0) regions.Remove(key);

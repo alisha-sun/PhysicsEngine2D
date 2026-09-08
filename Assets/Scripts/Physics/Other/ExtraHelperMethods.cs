@@ -25,7 +25,7 @@ public class Debug2
         Debug.DrawLine(edge.start,edge.end, color, duration);
     }
 
-    public static void Draw(Collision c, float duration) {
+    internal static void Draw(Collision c, float duration) {
         foreach (Vector2 p in c.contactPoints) DrawX(p, Color.red, duration);
         DrawArrow(c.reference.Owner.Position, c.normal*c.penetration, Color.green, duration);
     }
@@ -45,11 +45,6 @@ public class Vectors2D {
         float det = a * d - b * c;
         if (Mathf.Abs(det) < EPSILON)
         {
-            Debug.Log("a: " + a +
-                      "\nb: " + b +
-                      "\nc: " + c +
-                      "\nd: " + d + 
-                      "\ndet: " + det);
             return new Vector2(float.NaN, float.NaN);
         }
         else return new Vector2(d * v.x - b * v.y, -c * v.x + a * v.y) / det; // x = (1 / (a * d - b * c))[d,-b ; -c,a]v
@@ -94,18 +89,18 @@ public class Vectors2D {
         }
         return maxVector;
     }
-    public static Vector2 FindClosestPoint(IReadOnlyList<Vector2> points, Vector2 pos)
+    public static Vector2 FindClosestPoint(Vector2[] points, Vector2 pos)
     {
         Vector2 closest = points[0];
         float minDistSq = (points[0] - pos).sqrMagnitude;
-        foreach (var vertex in points)
+        for (int i = 0; i < points.Length; i++)
         {
-            float distSq = (vertex - pos).sqrMagnitude;
+            float distSq = (points[i] - pos).sqrMagnitude;
 
             if (distSq < minDistSq)
             {
                 minDistSq = distSq;
-                closest = vertex;
+                closest = points[i];
             }
         }
         return closest;
@@ -135,6 +130,15 @@ public struct Edge
 
         this.tangent = end - start;
         this.normal = new Vector2(-tangent.y, tangent.x).normalized; //rotated 90 degrees ccw
+    }
+
+    internal Edge(Vector2 start, Vector2 end, Vector2 normal)
+    {
+        this.start = start;
+        this.end = end;
+
+        this.tangent = end - start;
+        this.normal = normal;
     }
 
     public Edge(float f) {
