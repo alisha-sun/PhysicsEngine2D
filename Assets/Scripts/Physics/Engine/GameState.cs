@@ -9,11 +9,7 @@ public class GameState
     private List<DynamicObject> objects = new List<DynamicObject>();
     private List<StaticObject> staticObjects = new List<StaticObject>();
 
-    private const float ITERATIONS = 3;
-
-    //DEBUG
-    public static int collisions;
-    public static int pairs;
+    private const float ITERATIONS = 10;
 
     public void Step(int ticks)
     {
@@ -38,20 +34,10 @@ public class GameState
         }
         for (int i = 0; i < ITERATIONS; i++)
         {
-            pairs = 0;
-            collisions = 0;
             foreach (DynamicObject obj in objects)
             {
-                /*List<Collision> collisions = Collision.GetCollisions(obj, this);
-
-                Vector2 impulse = new Vector2(0, 0);
-                foreach (Collision collision in collisions) {
-                    collision.Resolve();
-                }*/
                 Collision.DoCollisions(obj, this);
             }
-            Debug.Log("Checked: " + pairs);
-            Debug.Log("Resolved: " + collisions);
 
             foreach (StaticObject obj in staticObjects) { //collisions with static objects are more important so they go last. Also i might implement continuous collision detection for static objects later
                 Collision.DoCollisions(obj, this);

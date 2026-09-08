@@ -20,7 +20,7 @@ public class StaticObject : PhysicsObject //should never need to be sent over th
                                                                 public override float Inertia => float.PositiveInfinity;
 
 
-    private Vector2Int[] _regions;                              public IReadOnlyList<Vector2Int> Regions => _regions;
+    private Vector2Int[] _regions;                              internal override IEnumerable<Vector2Int> Regions => _regions;
 
     public StaticObject(GameObject instance) {
         _position = instance.transform.position;
@@ -46,7 +46,7 @@ public class StaticObject : PhysicsObject //should never need to be sent over th
 
         foreach (IPhysicsCollider collider in _colliders)
         {
-            (Vector2 min, Vector2 max) boundingBox = collider.GetBoundingBox();
+            (Vector2 min, Vector2 max) boundingBox = collider.BoundingBox;
             min.x = Mathf.Min(min.x, boundingBox.min.x);
             min.y = Mathf.Min(min.y, boundingBox.min.y);
 
