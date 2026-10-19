@@ -1,23 +1,19 @@
-# Networked Shared-Control Platformer Prototype
+# Custom 2D Physics Engine
 
-A 2D platformer prototype built in Unity exploring a cooperative mechanic where two players control different aspects of the same character.
+A custom 2D rigidbody physics engine developed in C# using Unity.
 
-**Current status:** Multiplayer currently works over LAN. I am currently in the process of implementing a custom deterministic 2D physics engine.
+## Features
 
-## Controls (currently implemented)
-#### Player 1:
-* Horizontal movement (`A`, `D`)
-* Double jump (`W`)
-#### Player 2:
-* Jump OR triple jump (`W`)
-* Stop movement when pressing the opposite direction, otherwise dash (`A`, `D`)
-* Dive if Player 1 is holding `S` (`S`)
-
-The two players can swap controls by pressing `0` at the same time. This is planned to be replaced with a pause menu option.
+- Circle and convex polygon colliders
+- Broad-phase collision filtering using spatial partitioning
+- Narrow-phase collision detection using Separating Axis Theorem
+- Impulse-based collision resolution
 
 ## Demo
-https://github.com/user-attachments/assets/73c99bcd-9922-4b66-bae8-9fb0df4e2522
 
-## Dependencies
-* Unity 2022.3.62f3
-* Unity Netcode for GameObjects 1.12.2
+https://github.com/user-attachments/assets/2cba1357-aa98-485b-9f53-63709540e6ea
+
+## Technologies
+
+- C#
+- Unity

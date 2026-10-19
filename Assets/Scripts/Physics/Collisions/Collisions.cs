@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
-using Unity.Profiling;
 using UnityEngine;
 using static UnityEngine.GraphicsBuffer;
 public interface IPhysicsCollider
@@ -13,9 +12,6 @@ public interface IPhysicsCollider
 }
 internal struct Collision
 {
-    static readonly ProfilerMarker resolveMarker = new("Resolve");
-    static readonly ProfilerMarker detectMarker = new("Detect");
-    
     private const float OVERLAP_EPSILON = 1e-5f;
 
     public IPhysicsCollider reference;
@@ -103,149 +99,144 @@ internal struct Collision
 
     internal static Collision Check(IPhysicsCollider a, IPhysicsCollider b)
     {
-        using (detectMarker.Auto()) {
-            if (a is PolygonCollider polyA)
-            {
-                if (b is PolygonCollider polyB) return new Collision(polyA, polyB);
-                if (b is CircleCollider circleB) return new Collision(polyA, circleB);
-            }
-            else if (a is CircleCollider circleA)
-            {
-                if (b is PolygonCollider polyB) return new Collision(polyB, circleA);
-                if (b is CircleCollider circleB) return new Collision(circleA, circleB);
-            }
-            return new Collision(float.NaN);
+        if (a is PolygonCollider polyA)
+        {
+            if (b is PolygonCollider polyB) return new Collision(polyA, polyB);
+            if (b is CircleCollider circleB) return new Collision(polyA, circleB);
         }
+        else if (a is CircleCollider circleA)
+        {
+            if (b is PolygonCollider polyB) return new Collision(polyB, circleA);
+            if (b is CircleCollider circleB) return new Collision(circleA, circleB);
+        }
+        return new Collision(float.NaN);
     }
 
     internal readonly (Vector2, Vector2) Resolve() {
-        using (resolveMarker.Auto())
+        if (contactPoints == null || contactPoints.Length == 0) return (Vector2.zero, Vector2.zero);
+
+        float e = Restitution();
+
+        int contactCount = contactPoints.Length;
+
+        Vector2 point0 = contactPoints[0];
+        float impulse0 = 0;
+        Vector2 point1 = default;
+        float impulse1 = 0;
+
+        if (contactCount == 2)
         {
-            if (contactPoints == null || contactPoints.Length == 0) return (Vector2.zero, Vector2.zero);
+            point1 = contactPoints[1];
 
-            float e = Restitution();
+            float rv_n0 = Vector2.Dot(
+                    incident.Owner.GetVelocityAtPoint(point0, true) - reference.Owner.GetVelocityAtPoint(point0, true)
+                , normal); //relative velocity along the collision normal at the first contact point
 
-            int contactCount = contactPoints.Length;
+            float rv_n1 = Vector2.Dot(
+                    incident.Owner.GetVelocityAtPoint(point1, true) - reference.Owner.GetVelocityAtPoint(point1, true)
+                , normal); //relative velocity along the collision normal at the second contact point
 
-            Vector2 point0 = contactPoints[0];
-            float impulse0 = 0;
-            Vector2 point1 = default;
-            float impulse1 = 0;
-
-            if (contactCount == 2)
+            Vector2 impulseMagnitudes;
+            if (rv_n0 > 0 && rv_n1 > 0) return (Vector2.zero, Vector2.zero);
+            else if (rv_n0 > 0)
             {
-                point1 = contactPoints[1];
-
-                float rv_n0 = Vector2.Dot(
-                      incident.Owner.GetVelocityAtPoint(point0, true) - reference.Owner.GetVelocityAtPoint(point0, true)
-                    , normal); //relative velocity along the collision normal at the first contact point
-
-                float rv_n1 = Vector2.Dot(
-                      incident.Owner.GetVelocityAtPoint(point1, true) - reference.Owner.GetVelocityAtPoint(point1, true)
-                    , normal); //relative velocity along the collision normal at the second contact point
-
-                Vector2 impulseMagnitudes;
-                if (rv_n0 > 0 && rv_n1 > 0) return (Vector2.zero, Vector2.zero);
-                else if (rv_n0 > 0)
-                {
-                    impulseMagnitudes = Vectors2D.SolveSystem(CalculateContactVelocityCoefficient(0, 0), CalculateContactVelocityCoefficient(0, 1),
-                                                              CalculateContactVelocityCoefficient(1, 0), CalculateContactVelocityCoefficient(1, 1),
-                                                              new Vector2(0, -(1 + e) * rv_n1));
-                }
-                else if (rv_n1 > 0)
-                {
-                    impulseMagnitudes = Vectors2D.SolveSystem(CalculateContactVelocityCoefficient(0, 0), CalculateContactVelocityCoefficient(0, 1),
-                                                              CalculateContactVelocityCoefficient(1, 0), CalculateContactVelocityCoefficient(1, 1),
-                                                              new Vector2(-(1 + e) * rv_n0, 0));
-                }
-                else
-                {
-                    impulseMagnitudes = Vectors2D.SolveSystem(CalculateContactVelocityCoefficient(0, 0), CalculateContactVelocityCoefficient(0, 1),
-                                                              CalculateContactVelocityCoefficient(1, 0), CalculateContactVelocityCoefficient(1, 1),
-                                                              new Vector2(-(1 + e) * rv_n0, -(1 + e) * rv_n1));
-                } //these matrcies are singular if the two contact points are aligned along the collision normal
-
-                if (!Vectors2D.IsFinite(impulseMagnitudes) || (impulseMagnitudes.x < 0 && impulseMagnitudes.y < 0))
-                {
-                    /*Debug2.Draw(this, Time.fixedDeltaTime);
-                    Debug.Log(this);
-                    Debug.LogWarning("Unable to solve for impulse in double contact point collision between " + reference.Owner.Instance.name + " and " + incident.Owner.Instance.name);*/
-                    point0 = (point0 + point1) / 2;
-                    contactCount = 1;
-                }
-                else if (impulseMagnitudes.x < 0)
-                {
-                    point0 = point1;
-                    contactCount = 1;
-                }
-                else if (impulseMagnitudes.y < 0)
-                {
-                    contactCount = 1;
-                }
-                else
-                {
-                    impulse0 = impulseMagnitudes.x;
-                    impulse1 = impulseMagnitudes.y;
-                }
+                impulseMagnitudes = Vectors2D.SolveSystem(CalculateContactVelocityCoefficient(0, 0), CalculateContactVelocityCoefficient(0, 1),
+                                                            CalculateContactVelocityCoefficient(1, 0), CalculateContactVelocityCoefficient(1, 1),
+                                                            new Vector2(0, -(1 + e) * rv_n1));
             }
-
-            if (contactCount == 1)
+            else if (rv_n1 > 0)
             {
-                float rv_n = Vector2.Dot(
-                      incident.Owner.GetVelocityAtPoint(point0, true) - reference.Owner.GetVelocityAtPoint(point0, true)
-                    , normal); //relative velocity along the collision normal (negative if the space between the two objects is decreasing)
-
-                if (rv_n > 0) return (Vector2.zero, Vector2.zero);
-
-                float j = (-(1 + e) * rv_n) /
-                    ((1 / reference.Owner.Mass) + (1 / incident.Owner.Mass) +
-                    (Mathf.Pow(Vectors2D.Cross(point0 - reference.Owner.Position, normal), 2) / reference.Owner.Inertia) +
-                    (Mathf.Pow(Vectors2D.Cross(point0 - incident.Owner.Position, normal), 2) / incident.Owner.Inertia));
-
-                if (!float.IsFinite(j) || j < 0)
-                {
-                    Debug2.Draw(this, Time.fixedDeltaTime);
-                    Debug.Log(this);
-                    Debug.LogError("Unable to solve for impulse in single contact point collision between " + reference.Owner.Instance.name + " and " + incident.Owner.Instance.name);
-                }
-                else impulse0 = j;
+                impulseMagnitudes = Vectors2D.SolveSystem(CalculateContactVelocityCoefficient(0, 0), CalculateContactVelocityCoefficient(0, 1),
+                                                            CalculateContactVelocityCoefficient(1, 0), CalculateContactVelocityCoefficient(1, 1),
+                                                            new Vector2(-(1 + e) * rv_n0, 0));
             }
-
-
-            Vector2 deltaP_reference = Vector2.zero;
-            Vector2 deltaP_incident = Vector2.zero;
-            float ratio = PercentMass_Reference();
-            if (reference.Owner is DynamicObject d1)
+            else
             {
-                d1.ApplyImpulse(-impulse0 * normal, d1.WorldToLocal_Point(point0));
-                if (contactCount == 2) d1.ApplyImpulse(-impulse1 * normal, d1.WorldToLocal_Point(point1));
+                impulseMagnitudes = Vectors2D.SolveSystem(CalculateContactVelocityCoefficient(0, 0), CalculateContactVelocityCoefficient(0, 1),
+                                                            CalculateContactVelocityCoefficient(1, 0), CalculateContactVelocityCoefficient(1, 1),
+                                                            new Vector2(-(1 + e) * rv_n0, -(1 + e) * rv_n1));
+            } //these matrcies are singular if the two contact points are aligned along the collision normal
 
-                deltaP_reference = -penetration * (1 - ratio) * normal;
-
-                d1.SetPosition_Internal(d1.Position + deltaP_reference);
-                d1.OnTranslation(deltaP_reference, false);
-            }
-
-            if (incident.Owner is DynamicObject d2)
+            if (!Vectors2D.IsFinite(impulseMagnitudes) || (impulseMagnitudes.x < 0 && impulseMagnitudes.y < 0))
             {
-                d2.ApplyImpulse(impulse0 * normal, d2.WorldToLocal_Point(point0));
-                if (contactCount == 2) d2.ApplyImpulse(impulse1 * normal, d2.WorldToLocal_Point(point1));
-
-                deltaP_incident = penetration * ratio * normal;
-
-                d2.SetPosition_Internal(d2.Position + deltaP_incident);
-                d2.OnTranslation(deltaP_incident, false);
+                /*Debug2.Draw(this, Time.fixedDeltaTime);
+                Debug.Log(this);
+                Debug.LogWarning("Unable to solve for impulse in double contact point collision between " + reference.Owner.Instance.name + " and " + incident.Owner.Instance.name);*/
+                point0 = (point0 + point1) / 2;
+                contactCount = 1;
             }
-
-            /*Debug2.DrawX(point0, Color.red, Time.fixedDeltaTime);
-            Debug2.DrawArrow(point0, normal * impulse0, Color.green, Time.fixedDeltaTime);
-            if (contactCount == 2) {
-                Debug2.DrawX(point1, Color.red, Time.fixedDeltaTime);
-                Debug2.DrawArrow(point1, normal * impulse1, Color.green, Time.fixedDeltaTime);
-            }*/
-
-            return (deltaP_reference, deltaP_incident);
+            else if (impulseMagnitudes.x < 0)
+            {
+                point0 = point1;
+                contactCount = 1;
+            }
+            else if (impulseMagnitudes.y < 0)
+            {
+                contactCount = 1;
+            }
+            else
+            {
+                impulse0 = impulseMagnitudes.x;
+                impulse1 = impulseMagnitudes.y;
+            }
         }
+
+        if (contactCount == 1)
+        {
+            float rv_n = Vector2.Dot(
+                    incident.Owner.GetVelocityAtPoint(point0, true) - reference.Owner.GetVelocityAtPoint(point0, true)
+                , normal); //relative velocity along the collision normal (negative if the space between the two objects is decreasing)
+
+            if (rv_n > 0) return (Vector2.zero, Vector2.zero);
+
+            float j = (-(1 + e) * rv_n) /
+                ((1 / reference.Owner.Mass) + (1 / incident.Owner.Mass) +
+                (Mathf.Pow(Vectors2D.Cross(point0 - reference.Owner.Position, normal), 2) / reference.Owner.Inertia) +
+                (Mathf.Pow(Vectors2D.Cross(point0 - incident.Owner.Position, normal), 2) / incident.Owner.Inertia));
+
+            if (!float.IsFinite(j) || j < 0)
+            {
+                Debug2.Draw(this, Time.fixedDeltaTime);
+                Debug.Log(this);
+                Debug.LogError("Unable to solve for impulse in single contact point collision between " + reference.Owner.Instance.name + " and " + incident.Owner.Instance.name);
+            }
+            else impulse0 = j;
+        }
+
+
+        Vector2 deltaP_reference = Vector2.zero;
+        Vector2 deltaP_incident = Vector2.zero;
+        float ratio = PercentMass_Reference();
+        if (reference.Owner is DynamicObject d1)
+        {
+            d1.ApplyImpulse(-impulse0 * normal, d1.WorldToLocal_Point(point0));
+            if (contactCount == 2) d1.ApplyImpulse(-impulse1 * normal, d1.WorldToLocal_Point(point1));
+
+            deltaP_reference = -penetration * (1 - ratio) * normal;
+
+            d1.SetPosition_Internal(d1.Position + deltaP_reference);
+            d1.OnTranslation(deltaP_reference, false);
+        }
+
+        if (incident.Owner is DynamicObject d2)
+        {
+            d2.ApplyImpulse(impulse0 * normal, d2.WorldToLocal_Point(point0));
+            if (contactCount == 2) d2.ApplyImpulse(impulse1 * normal, d2.WorldToLocal_Point(point1));
+
+            deltaP_incident = penetration * ratio * normal;
+
+            d2.SetPosition_Internal(d2.Position + deltaP_incident);
+            d2.OnTranslation(deltaP_incident, false);
+        }
+
+        Debug2.DrawX(point0, Color.red, Time.fixedDeltaTime);
+        Debug2.DrawArrow(point0, normal * impulse0, Color.green, Time.fixedDeltaTime);
+        if (contactCount == 2) {
+            Debug2.DrawX(point1, Color.red, Time.fixedDeltaTime);
+            Debug2.DrawArrow(point1, normal * impulse1, Color.green, Time.fixedDeltaTime);
+        }
+
+        return (deltaP_reference, deltaP_incident);
     }
 
     private readonly float PercentMass_Reference()
@@ -261,7 +252,7 @@ internal struct Collision
 
     private readonly float Restitution()
     {
-        return 0; //consider physics materials later
+        return 1; //consider physics materials later
     }
 
     private readonly float CalculateContactVelocityCoefficient(int v_index, int j_index) { //i worked through the algebra myself :/

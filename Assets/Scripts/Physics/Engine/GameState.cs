@@ -9,7 +9,7 @@ public class GameState
     private List<DynamicObject> objects = new List<DynamicObject>();
     private List<StaticObject> staticObjects = new List<StaticObject>();
 
-    private const float ITERATIONS = 3;
+    private const float ITERATIONS = 10;
 
     public void Step(int ticks)
     {
